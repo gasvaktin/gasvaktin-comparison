@@ -207,8 +207,6 @@ def main(use_logger=True):
         'Write collected data to plain CSV data files.'
     ))
     pargs = parser.parse_args()
-    print(pargs)
-    # database setup
     if logger is not None:
         logger.info('Initiating database ..')
     db_uri = 'sqlite:///database/database.sqlite'
