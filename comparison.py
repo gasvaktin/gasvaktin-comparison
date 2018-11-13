@@ -2,10 +2,12 @@
 # -*- coding: utf-8 -*-
 # ----------------------------------------------------------------------------------------------- #
 import argparse
+import configparser
 import datetime
 import logging
+import os
 
-# import git
+import git
 
 from database.models import Currency, CrudeOilBarrelUSD, ExchangeRateOfISK
 import database.db
@@ -186,19 +188,61 @@ def write_isk_rate_history_to_files(db, logger=None):
         logger.info('Finished writing isk rate history data to file.')
 
 
-def commit_to_git(db, logger=None):
-    print('todo: write autocommit functionality')
-    # TODO: implement
-    # import pdb; pdb.set_trace()
+def commit_changes_to_git(db, config, logger=None):
+    timestamp = datetime.datetime.now().strftime('%Y-%m-%dT%H:%M')
+    watchlist = [
+        'data/crude_oil_barrel_usd.csv.txt',
+        'data/crude_oil_litres_isk.csv.txt',
+        'data/currency_rate_isk_cad.csv.txt',
+        'data/currency_rate_isk_chf.csv.txt',
+        'data/currency_rate_isk_dkk.csv.txt',
+        'data/currency_rate_isk_eur.csv.txt',
+        'data/currency_rate_isk_gbp.csv.txt',
+        'data/currency_rate_isk_jpy.csv.txt',
+        'data/currency_rate_isk_nok.csv.txt',
+        'data/currency_rate_isk_sek.csv.txt',
+        'data/currency_rate_isk_usd.csv.txt',
+        'data/currency_rate_isk_xdr.csv.txt'
+    ]
+    repo = git.Repo(config.get('Comparison', 'git_directory'))
+    assert(repo.active_branch.name == 'master')
+    repo.git.pull()
+    if repo.is_dirty():
+        logger.info('Repository is dirty ..')
+        commit_required = False
+        for item in repo.index.diff(None):
+            if item.a_path in watchlist:
+                if logger is not None:
+                    logger.info('Adding "%s" ..' % (item.a_path, ))
+                repo.git.add(item.a_path)
+                commit_required = True
+        if commit_required:
+            commit_msg = 'auto.data.update.%s' % (timestamp, )
+            repo.git.commit(m=commit_msg)
+            if logger is not None:
+                logger.info('Pushing changes (%s) ..' % (commit_msg, ))
+            repo.git.push()
+            if logger is not None:
+                logger.info('Pushed changes.')
+        else:
+            if logger is not None:
+                logger.warning('Repository is dirty but no changes to files in watchlist.')
+    else:
+        logger.info('Repository is clean.')
 
 
 def main(use_logger=True):
     logger = None
     if use_logger:
         logger = setup_logger()
+    default_config_file = os.path.join(os.getcwd(), 'config.cfg')
+    assert(os.path.exists(default_config_file) and os.path.isfile(default_config_file))
     parser = argparse.ArgumentParser(description='Gasvaktin Comparison')
-    parser.add_argument('-c', '--auto-commit', action='store_true', help=(
+    parser.add_argument('-a', '--auto-commit', action='store_true', help=(
         'Auto commit to git repository.'
+    ))
+    parser.add_argument('-c', '--config', default=default_config_file, help=(
+        'Provide path to configuration file to use (default: "./config.cfg").'
     ))
     parser.add_argument('-f', '--fetch-data', action='store_true', help=(
         'Fetch additional data if available and store in local database.'
@@ -207,6 +251,23 @@ def main(use_logger=True):
         'Write collected data to plain CSV data files.'
     ))
     pargs = parser.parse_args()
+    config_pwd = os.path.expanduser(pargs.config)
+    # read config file
+    config = configparser.RawConfigParser()
+    if os.path.exists(config_pwd) and os.path.isfile(config_pwd):
+        config.read(config_pwd)
+        if logger is not None:
+            if config_pwd == default_config_file:
+                logger.info('Using default config file ..')
+            else:
+                logger.info('Using config file "%s" ..' % (pargs.config, ))
+    else:
+        assert(config_pwd != default_config_file)
+        if logger is not None:
+            logger.warning('Config file "%s" not found, using default config ..' % (
+                pargs.config,
+            ))
+        config.read(default_config_file)
     if logger is not None:
         logger.info('Initiating database ..')
     db_uri = 'sqlite:///database/database.sqlite'
@@ -229,7 +290,7 @@ def main(use_logger=True):
     if pargs.auto_commit:
         if logger is not None:
             logger.info('Running --auto-commit ..')
-        commit_to_git(database.db, logger)
+        commit_changes_to_git(database.db, config, logger)
     if logger is not None:
         logger.info('Done.')
 

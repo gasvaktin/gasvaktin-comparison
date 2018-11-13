@@ -13,7 +13,7 @@ pip3 install -r requirements.txt
 ## Usage
 
 ```bash
-python3 comparison.py --fetch-data --write-data --auto-commit
+python3 comparison.py --fetch-data --write-data
 ```
 
 See `--help` for more info:
