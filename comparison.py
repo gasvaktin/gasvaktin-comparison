@@ -204,31 +204,35 @@ def commit_changes_to_git(db, config, logger=None):
         'data/currency_rate_isk_usd.csv.txt',
         'data/currency_rate_isk_xdr.csv.txt'
     ]
-    repo = git.Repo(config.get('Comparison', 'git_directory'))
-    assert(repo.active_branch.name == 'master')
-    repo.git.pull()
-    if repo.is_dirty():
-        logger.info('Repository is dirty ..')
-        commit_required = False
-        for item in repo.index.diff(None):
-            if item.a_path in watchlist:
+    git_ssh_identity_file = os.path.expanduser(config.get('Comparison', 'ssh_id_file'))
+    assert(os.path.exists(git_ssh_identity_file) and os.path.isfile(git_ssh_identity_file))
+    git_ssh_cmd = 'ssh -i %s' % (git_ssh_identity_file, )
+    with git.Git().custom_environment(GIT_SSH_COMMAND=git_ssh_cmd):
+        repo = git.Repo(os.path.expanduser(config.get('Comparison', 'git_directory')))
+        assert(repo.active_branch.name == 'master')
+        repo.git.pull()
+        if repo.is_dirty():
+            logger.info('Repository is dirty ..')
+            commit_required = False
+            for item in repo.index.diff(None):
+                if item.a_path in watchlist:
+                    if logger is not None:
+                        logger.info('Adding "%s" ..' % (item.a_path, ))
+                    repo.git.add(item.a_path)
+                    commit_required = True
+            if commit_required:
+                commit_msg = 'auto.data.update.%s' % (timestamp, )
+                repo.git.commit(m=commit_msg)
                 if logger is not None:
-                    logger.info('Adding "%s" ..' % (item.a_path, ))
-                repo.git.add(item.a_path)
-                commit_required = True
-        if commit_required:
-            commit_msg = 'auto.data.update.%s' % (timestamp, )
-            repo.git.commit(m=commit_msg)
-            if logger is not None:
-                logger.info('Pushing changes (%s) ..' % (commit_msg, ))
-            repo.git.push()
-            if logger is not None:
-                logger.info('Pushed changes.')
+                    logger.info('Pushing changes (%s) ..' % (commit_msg, ))
+                repo.git.push()
+                if logger is not None:
+                    logger.info('Pushed changes.')
+            else:
+                if logger is not None:
+                    logger.warning('Repository is dirty but no changes to files in watchlist.')
         else:
-            if logger is not None:
-                logger.warning('Repository is dirty but no changes to files in watchlist.')
-    else:
-        logger.info('Repository is clean.')
+            logger.info('Repository is clean.')
 
 
 def main(use_logger=True):
