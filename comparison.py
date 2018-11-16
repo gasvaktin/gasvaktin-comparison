@@ -10,6 +10,7 @@ import os
 import git
 
 from database.models import Currency, CrudeOilBarrelUSD, ExchangeRateOfISK
+from database.models import DieselPriceIcelandLiterISK, PetrolPriceIcelandLiterISK
 import database.db
 import endpoints
 
@@ -128,6 +129,56 @@ def fetch_isk_rate_history(db, logger=None):
         logger.info('Finished fetching ISK rate history.')
 
 
+def fetch_icelandic_fuel_price_history(db, logger=None):
+    start_date = None
+    last_petrol_record = db.session.query(PetrolPriceIcelandLiterISK).order_by(
+        PetrolPriceIcelandLiterISK.date.desc()
+    ).first()
+    last_diesel_record = db.session.query(DieselPriceIcelandLiterISK).order_by(
+        DieselPriceIcelandLiterISK.date.desc()
+    ).first()
+    if last_petrol_record is not None:
+        start_date = datetime.datetime.strptime(last_petrol_record.date, '%Y-%m-%d')
+    if last_diesel_record is not None:
+        if (start_date is None or
+           start_date > datetime.datetime.strptime(last_petrol_record.date, '%Y-%m-%d')):
+            start_date = datetime.datetime.strptime(last_petrol_record.date, '%Y-%m-%d')
+    fuel_price_data = endpoints.get_icelandic_fuel_price_history(start_date, logger)
+    commit_required = False
+    logger_messages = []
+    for date_key in fuel_price_data['petrol']:
+        record = db.session.query(PetrolPriceIcelandLiterISK).filter_by(date=date_key).first()
+        if record is None:
+            record = PetrolPriceIcelandLiterISK(
+                date=date_key,
+                price=fuel_price_data['petrol'][date_key]
+            )
+            db.session.add(record)
+            logger_messages.append('Petrol data "%s" %s written to database.' % (
+                date_key,
+                fuel_price_data['petrol'][date_key]
+            ))
+            commit_required = True
+    for date_key in fuel_price_data['diesel']:
+        record = db.session.query(DieselPriceIcelandLiterISK).filter_by(date=date_key).first()
+        if record is None:
+            record = DieselPriceIcelandLiterISK(
+                date=date_key,
+                price=fuel_price_data['diesel'][date_key]
+            )
+            db.session.add(record)
+            logger_messages.append('Petrol data "%s" %s written to database.' % (
+                date_key,
+                fuel_price_data['diesel'][date_key]
+            ))
+            commit_required = True
+    if commit_required:
+        db.session.commit()  # single commit for all currencies, better for disk drive
+    if logger is not None:
+        for message in logger_messages:
+            logger.info(message)
+
+
 def write_crude_oil_rate_history_to_file(db, logger=None):
     if logger is not None:
         logger.info('Writing crude oil rate history data to files ..')
@@ -188,6 +239,36 @@ def write_isk_rate_history_to_files(db, logger=None):
         logger.info('Finished writing isk rate history data to file.')
 
 
+def write_icelandic_fuel_price_history_to_files(db, logger=None):
+    if logger is not None:
+        logger.info('Writing crude oil rate history data to files ..')
+    filename1 = 'data/fuel_petrol_iceland_liter_isk.csv.txt'
+    filename2 = 'data/fuel_diesel_iceland_liter_isk.csv.txt'
+    # petrol
+    petrol_records = db.session.query(PetrolPriceIcelandLiterISK).order_by(
+        PetrolPriceIcelandLiterISK.date
+    )
+    with open(filename1, mode='w', encoding='utf-8') as petrol_file:
+        if logger is not None:
+            logger.info('Writing to file "%s" ..' % (filename1, ))
+        petrol_file.write('date,price\n')
+        for record in petrol_records:
+            petrol_file.write('%s,%s\n' % (record.date, record.price))
+    # diesel
+    diesel_records = db.session.query(DieselPriceIcelandLiterISK).order_by(
+        DieselPriceIcelandLiterISK.date
+    )
+    # the plain crude oil data from the Federal Reserve Bank of St Louis
+    with open(filename2, mode='w', encoding='utf-8') as diesel_file:
+        if logger is not None:
+            logger.info('Writing to file "%s" ..' % (filename1, ))
+        diesel_file.write('date,price\n')
+        for record in diesel_records:
+            diesel_file.write('%s,%s\n' % (record.date, record.price))
+    if logger is not None:
+        logger.info('Finished writing isk rate history data to file.')
+
+
 def commit_changes_to_git(db, config, logger=None):
     timestamp = datetime.datetime.now().strftime('%Y-%m-%dT%H:%M')
     watchlist = [
@@ -202,7 +283,9 @@ def commit_changes_to_git(db, config, logger=None):
         'data/currency_rate_isk_nok.csv.txt',
         'data/currency_rate_isk_sek.csv.txt',
         'data/currency_rate_isk_usd.csv.txt',
-        'data/currency_rate_isk_xdr.csv.txt'
+        'data/currency_rate_isk_xdr.csv.txt',
+        'data/fuel_diesel_iceland_liter_isk.csv.txt',
+        'data/fuel_petrol_iceland_liter_isk.csv.txt'
     ]
     git_ssh_identity_file = os.path.expanduser(config.get('Comparison', 'ssh_id_file'))
     assert(os.path.exists(git_ssh_identity_file) and os.path.isfile(git_ssh_identity_file))
@@ -286,11 +369,13 @@ def main(use_logger=True):
             logger.info('Running --fetch-data ..')
         fetch_crude_oil_rate_history(database.db, logger)
         fetch_isk_rate_history(database.db, logger)
+        fetch_icelandic_fuel_price_history(database.db, logger)
     if pargs.write_data:
         if logger is not None:
             logger.info('Running --write-data ..')
         write_crude_oil_rate_history_to_file(database.db, logger)
         write_isk_rate_history_to_files(database.db, logger)
+        write_icelandic_fuel_price_history_to_files(database.db, logger)
     if pargs.auto_commit:
         if logger is not None:
             logger.info('Running --auto-commit ..')

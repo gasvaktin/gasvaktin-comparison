@@ -15,3 +15,21 @@ class CrudeOilBarrelUSD(Base):
     rate = Column(Float(), nullable=False, server_default='0.0')
     edited = utility_columns.timestamp_edited()
     created = utility_columns.timestamp_created()
+
+
+class DieselPriceIcelandLiterISK(Base):
+    __tablename__ = 'diesel_price_iceland_liter_isk'
+    price_id = Column(Integer(), primary_key=True)
+    date = Column(Unicode(10), unique=True, nullable=False, server_default='')
+    price = Column(Float(), nullable=False, server_default='0.0')
+    edited = utility_columns.timestamp_edited()
+    created = utility_columns.timestamp_created()
+
+
+class PetrolPriceIcelandLiterISK(Base):
+    __tablename__ = 'petrol_price_iceland_liter_isk'
+    price_id = Column(Integer(), primary_key=True)
+    date = Column(Unicode(10), unique=True, nullable=False, server_default='')
+    price = Column(Float(), nullable=False, server_default='0.0')
+    edited = utility_columns.timestamp_edited()
+    created = utility_columns.timestamp_created()
