@@ -9,6 +9,8 @@ import time
 import lxml.etree
 import requests
 
+USER_AGENT = 'Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:63.0) Gecko/20100101 Firefox/63.0'
+
 
 def get_isk_exchange_rate(req_date, logger=None):
     '''
@@ -52,8 +54,7 @@ def get_isk_exchange_rate(req_date, logger=None):
         return data
     session = requests.Session()
     url = 'https://www.sedlabanki.is/hagtolur/opinber-gengisskraning/'
-    user_agent = 'Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:63.0) Gecko/20100101 Firefox/63.0'
-    res1 = session.get(url, headers={'User-Agent': user_agent})
+    res1 = session.get(url, headers={'User-Agent': USER_AGENT})
     res1.raise_for_status()
     headers_for_post = {
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
@@ -63,7 +64,7 @@ def get_isk_exchange_rate(req_date, logger=None):
         'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
         'Host': 'www.sedlabanki.is',
         'Referer': url,
-        'User-Agent': user_agent
+        'User-Agent': USER_AGENT
     }
     html1 = lxml.etree.fromstring(res1.content, lxml.etree.HTMLParser())
     form_data_for_post = {
@@ -122,7 +123,7 @@ def get_crude_oil_rate_history(date_a=None, date_b=None, logger=None):
     1987-05-20 to current date.
 
     Usage:  res_data = get_crude_oil_rate_history(date_a, date_b)
-    Before: @date_a and @date_b are both optional paramteres, both should be datetime.datetime
+    Before: @date_a and @date_b are both optional parameters, both should be datetime.datetime
             objects, @date_a represents start date (set to 1987-05-20 if omitted) and @date_b
             represents end date (set to todays date if omitted)
     After:  @res_data is a dict containing crude oil price rate for a selected timeframe.
@@ -142,9 +143,8 @@ def get_crude_oil_rate_history(date_a=None, date_b=None, logger=None):
     assert(start_date <= end_date)
     today = datetime.datetime.now()
     url = 'https://fred.stlouisfed.org/series/DCOILBRENTEU'
-    user_agent = 'Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:63.0) Gecko/20100101 Firefox/63.0'
     session = requests.Session()
-    res1 = session.get(url, headers={'User-Agent': user_agent})
+    res1 = session.get(url, headers={'User-Agent': USER_AGENT})
     res1.raise_for_status()
     csv_url = (  # no idea what params are required to not offend server
         'https://fred.stlouisfed.org/graph/fredgraph.csv?'
@@ -196,7 +196,7 @@ def get_crude_oil_rate_history(date_a=None, date_b=None, logger=None):
     )
     csv_headers = {
         'Host': 'fred.stlouisfed.org',
-        'User-Agent': user_agent,
+        'User-Agent': USER_AGENT,
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
         'Accept-Language': 'en-US,en;q=0.5',
         'Accept-Encoding': 'gzip, deflate, br',
@@ -226,4 +226,129 @@ def get_crude_oil_rate_history(date_a=None, date_b=None, logger=None):
             end_date.strftime('%Y-%m-%d'),
             len(data.keys())
         ))
+    return data
+
+
+def get_icelandic_fuel_price_history(req_date=None, logger=None):
+    '''
+    Extracts historical fuel price from FÍB and Gasvaktin.
+
+    FÍB has monitored monthly mean price on petrol in Iceland since 1996-09 and monthly mean price
+    on diesel since 2005-07. Gasvaktin began monitoring detailed fuel price changes in 2016-04-19.
+
+    Usage:  res_data = get_icelandic_fuel_price_history(req_date)
+    Before: @req_date is a datetime.datetime object containing date in the range 1996-09-01 to our
+            present date.
+    After:  @res_data is a dict containing mean fuel price rate change history from @req_date to
+            the present for petrol and diesel.
+
+    Note: If not obvious from the above, prices before 2016-04-19 are read from the FÍB monthly
+          mean data. Gasvaktin data is preferred over FÍB data because it's more detailed, however
+          FÍB deserves credit and praise for its data collection through the years.
+    '''
+    data = {
+        'petrol': {},
+        'diesel': {}
+    }
+    session = requests.Session()
+    gasvaktin_beginning = datetime.datetime(2016, 4, 19)
+    headers = {'User-Agent': USER_AGENT}
+    last_petrol_price = None
+    last_diesel_price = None
+    if req_date is None or req_date < gasvaktin_beginning:
+        if logger is not None:
+            logger.info('Fetching and parsing FÍB data ..')
+        fib_url = (
+            'https://www.fib.is/is/billinn/eldsneytisvakt-fib/eldsneytisvaktin-throun?'
+            'companies=&'
+            'start=1995-10-01&'
+            'petrol=bensin'
+        )
+        res1 = session.get(fib_url, headers=headers)
+        res1.raise_for_status()
+        time.sleep(0.5)  # just to look polite
+        fib_petrol = 'https://www.fib.is/eldsneytisvakt_fib/data/mean_prices_bensin.csv'
+        fib_diesel = 'https://www.fib.is/eldsneytisvakt_fib/data/mean_prices_diesel.csv'
+        res2 = session.get(fib_petrol, headers=headers)
+        res2.raise_for_status()
+        fake_file1 = io.StringIO(res2.content.decode('utf-8'))
+        reader1 = csv.DictReader(fake_file1, delimiter=',')
+        for line in reader1:
+            date = line['date']
+            if gasvaktin_beginning.strftime('%Y-%m-%d') < date:
+                continue  # prefer Gasvaktin data over FÍB data because it's more detailed
+            if req_date is not None and date < req_date.strftime('%Y-%m-%d'):
+                continue  # throw data outside time range selection
+            if line['price_without_services'] != 'null':
+                price = float(line['price_without_services'])
+            else:
+                price = float(line['price_with_services'])
+            last_petrol_price = price
+            datetime.datetime.strptime(date, '%Y-%m-%d')
+            data['petrol'][date] = float(price)
+        time.sleep(0.2)  # just to look polite
+        res3 = session.get(fib_diesel, headers=headers)
+        res3.raise_for_status()
+        fake_file2 = io.StringIO(res3.content.decode('utf-8'))
+        reader2 = csv.DictReader(fake_file2, delimiter=',')
+        for line in reader2:
+            date = line['date']
+            if gasvaktin_beginning.strftime('%Y-%m-%d') < date:
+                continue  # prefer Gasvaktin data over FÍB data because it's more detailed
+            if req_date is not None and date < req_date.strftime('%Y-%m-%d'):
+                continue  # throw data outside time range selection
+            if line['price_without_services'] != 'null':
+                price = float(line['price_without_services'])
+            else:
+                price = float(line['price_with_services'])
+            last_diesel_price = price
+            datetime.datetime.strptime(date, '%Y-%m-%d')
+            data['diesel'][date] = float(price)
+    if logger is not None:
+        logger.info('Fetching and parsing Gasvaktin data ..')
+    url = 'https://raw.githubusercontent.com/gasvaktin/gasvaktin/master/vaktin/trends.min.json'
+    res4 = session.get(url, headers=headers)
+    res4.raise_for_status()
+    gasvaktin_trends = res4.json()
+    current_date = datetime.datetime(2016, 4, 19)
+    today = datetime.datetime.now()
+    while current_date.strftime('%Y-%m-%d') < today.strftime('%Y-%m-%d'):
+        current_date_str = current_date.strftime('%Y-%m-%dT23:59')
+        if req_date is None or req_date.strftime('%Y-%m-%d') <= current_date.strftime('%Y-%m-%d'):
+            current_prices = {}
+            # programmers note: this double for loop implementation is bad and programmer should
+            # feel bad, but when programmer wrote this, programmer was feeling lazy and also
+            # programmer thinks bad implementation doesn't matter so much because dataset we're
+            # working with here doesn't grow fast enough to become a problem in near future (few
+            # years at least)
+            for company_key in gasvaktin_trends:
+                for change in gasvaktin_trends[company_key]:
+                    if change['timestamp'] < current_date_str:
+                        current_prices[company_key] = change
+                    else:
+                        break
+            # calculate mean petrol and diesel price
+            number_of_stations = 0
+            total_petrol_price = 0.0
+            total_diesel_price = 0.0
+            for company_key in current_prices:
+                if current_prices[company_key]['stations_count'] == 0:
+                    continue
+                stations_count = current_prices[company_key]['stations_count']
+                number_of_stations += stations_count
+                mean_petrol_price = current_prices[company_key]['mean_bensin95']
+                mean_diesel_price = current_prices[company_key]['mean_diesel']
+                total_petrol_price += (mean_petrol_price * stations_count)
+                total_diesel_price += (mean_diesel_price * stations_count)
+            current_petrol_price = round((total_petrol_price / number_of_stations), 2)
+            current_diesel_price = round((total_diesel_price / number_of_stations), 2)
+            if current_petrol_price != last_petrol_price:
+                data['petrol'][current_date.strftime('%Y-%m-%d')] = current_petrol_price
+                last_petrol_price = current_petrol_price
+            if current_diesel_price != last_diesel_price:
+                data['diesel'][current_date.strftime('%Y-%m-%d')] = current_diesel_price
+                last_diesel_price = current_diesel_price
+        current_date += datetime.timedelta(days=1)
+    if logger is not None:
+        logger.info('Finished parsing icelandic fuel price data.')
     return data
