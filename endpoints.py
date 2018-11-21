@@ -117,10 +117,14 @@ def get_isk_exchange_rate(req_date, logger=None):
 
 def get_crude_oil_rate_history(date_a=None, date_b=None, logger=None):
     '''
-    Extracts historical crude oil prices in USD/barrel from the Federal Reserve Bank of St Louis.
+    Extracts historical crude oil prices in USD/bbl from U.S. Energy Information Administration.
 
-    Federal Reserve Bank of St Louis provides this data in the form of a CSV file, with data from
-    1987-05-20 to current date.
+    The U.S. Energy Information Administration has data from 1987-05-20 to current date, they do
+    offer CSV download and also an API, however to use the API we need to register for an access
+    key which is unnecessary hassle for a random person who would perhaps like to run this on its
+    own but hasn't registered for an API key. The CSV download way is actually done with a funny
+    POST call to a php script with the whole data as a form data payload which the php script uses
+    to build a CSV file, so we just parse the data from the website HTML.
 
     Usage:  res_data = get_crude_oil_rate_history(date_a, date_b)
     Before: @date_a and @date_b are both optional parameters, both should be datetime.datetime
@@ -142,83 +146,23 @@ def get_crude_oil_rate_history(date_a=None, date_b=None, logger=None):
         end_date = date_b
     assert(start_date <= end_date)
     today = datetime.datetime.now()
-    url = 'https://fred.stlouisfed.org/series/DCOILBRENTEU'
-    session = requests.Session()
-    res1 = session.get(url, headers={'User-Agent': USER_AGENT})
-    res1.raise_for_status()
-    csv_url = (  # no idea what params are required to not offend server
-        'https://fred.stlouisfed.org/graph/fredgraph.csv?'
-        'bgcolor=%23e1e9f0&'
-        'chart_type=line&'
-        'drp=0&'
-        'fo=open%20sans&'
-        'graph_bgcolor=%23ffffff&'
-        'height=450&'
-        'mode=fred&'
-        'recession_bars=on&'
-        'txtcolor=%23444444&'
-        'ts=12&'
-        'tts=12&'
-        'width=748&'
-        'nt=0&'
-        'thu=0&'
-        'trc=0&'
-        'show_legend=yes&'
-        'show_axis_titles=yes&'
-        'show_tooltip=yes&'
-        'id=DCOILBRENTEU&'
-        'scale=left&'
-        'cosd={start_date}&'
-        'coed={end_date}&'
-        'line_color=%234572a7&'
-        'link_values=false&'
-        'line_style=solid&'
-        'mark_type=none&'
-        'mw=3&'
-        'lw=2&'
-        'ost=-99999&'
-        'oet=99999&'
-        'mma=0&'
-        'fml=a&'
-        'fq=Daily&'
-        'fam=avg&'
-        'fgst=lin&'
-        'fgsnd=2009-06-01&'
-        'line_index=1&'
-        'transformation=lin&'
-        'vintage_date={today}&'
-        'revision_date={today}&'
-        'nd=1987-05-20'
-    ).format(
-        start_date=start_date.strftime('%Y-%m-%d'),
-        end_date=end_date.strftime('%Y-%m-%d'),
-        today=today.strftime('%Y-%m-%d')
-    )
-    csv_headers = {
-        'Host': 'fred.stlouisfed.org',
-        'User-Agent': USER_AGENT,
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.5',
-        'Accept-Encoding': 'gzip, deflate, br',
-        'Referer': 'https://fred.stlouisfed.org/series/DCOILBRENTEU',
-        'Connection': 'keep-alive',
-        'Upgrade-Insecure-Requests': '1'
-    }
-    time.sleep(2)  # just to look polite
-    res2 = session.get(csv_url, headers=csv_headers)
-    res2.raise_for_status()
-    # open('debug_crude.txt', 'wb').write(res2.content)
-    fake_file = io.StringIO(res2.content.decode('utf-8'))  # csv module takes in file, not string
-    reader = csv.DictReader(fake_file, delimiter=',')
-    assert(reader.fieldnames == ['DATE', 'DCOILBRENTEU'])
+    url = 'https://www.eia.gov/opendata/qb.php?sdid=PET.RBRTE.D'
+    res = requests.get(url, headers={'User-Agent': USER_AGENT})
+    res.raise_for_status()
+    html = lxml.etree.fromstring(res.content, lxml.etree.HTMLParser())
+    table_body = html.find('.//table[@class="basic_table"]/tbody')
     data = {}
-    for line in reader:
-        date = line['DATE']
-        value = line['DCOILBRENTEU']
-        datetime.datetime.strptime(date, '%Y-%m-%d')  # instead of an assert :3
-        if value == '.':
-            continue
-        data[date] = float(value)
+    for table_row in table_body:
+        date_txt = table_row.findall('td')[1].text
+        date_datetime = datetime.datetime.strptime(date_txt, '%Y%m%d')
+        date_isoformatted = date_datetime.strftime('%Y-%m-%d')
+        if (date_isoformatted < start_date.strftime('%Y-%m-%d') or
+           end_date.strftime('%Y-%m-%d') <= date_isoformatted or
+           today.strftime('%Y-%m-%d') <= date_isoformatted):
+            continue  # strip away data for unwanted days
+        value_txt = table_row.findall('td')[3].text
+        value_float = float(value_txt)
+        data[date_isoformatted] = value_float
     assert(len(data.keys()) > 0)
     if logger is not None:
         logger.info('Crude Oil rate for dates [%s to %s] (%s lines) extracted.' % (
