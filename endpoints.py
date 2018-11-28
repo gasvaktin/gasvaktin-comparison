@@ -173,6 +173,49 @@ def get_crude_oil_rate_history(date_a=None, date_b=None, logger=None):
     return data
 
 
+def get_crude_oil_rate_history_fallback(logger=None):
+    '''
+    Extracts historical crude oil prices in USD/bbl from markets.businessinsider.com
+
+    This function exists because datasource behind the `get_crude_oil_rate_history` function tends
+    to lag behind.
+
+    Usage:  res_data = get_crude_oil_rate_history_fallback()
+    Before: Nothing
+    After:  @res_data is a dict containing crude oil price rate for the past few (~10) days.
+
+    Note: Data extracted from this should not be directly mixed with data from
+          `get_crude_oil_rate_history` because that data is from the European market but this data
+          is from the North-American market.
+    '''
+    if logger is not None:
+        logger.info('Fetching fallback crude data from markets.businessinsider.com ..')
+    url = 'https://markets.businessinsider.com/commodities/oil-price/usd?type=brent'
+    res = requests.get(url, headers={'User-Agent': USER_AGENT})
+    res.raise_for_status()
+    html = lxml.etree.fromstring(res.content, lxml.etree.HTMLParser())
+    link = html.find('.//span/a[@href="/commodities/historical-prices/oil-price/USD?type=Brent"]')
+    data_div = link.getparent().getparent().getparent()
+    assert(data_div.tag == 'div')
+    data_table = data_div.find('.//table')
+    assert(data_table is not None)
+    data = {}
+    for tr_row in data_table.findall('.//tr'):
+        if 'header-row' in tr_row.values():
+            continue  # skip header row
+        date_str = tr_row.findall('.//td')[0].text.strip()
+        price_closing = float(tr_row.findall('.//td')[1].text.strip())
+        # price_open = float(tr_row.findall('.//td')[2].text.strip())
+        # price_daily_high = float(tr_row.findall('.//td')[3].text.strip())
+        # price_daily_low = float(tr_row.findall('.//td')[4].text.strip())
+        date_datetime = datetime.datetime.strptime(date_str, '%m/%d/%Y')
+        date_isoformatted = date_datetime.strftime('%Y-%m-%d')
+        data[date_isoformatted] = price_closing
+    if logger is not None:
+        logger.info('Successfully fetched fallback crude data from markets.businessinsider.com')
+    return data
+
+
 def get_icelandic_fuel_price_history(req_date=None, logger=None):
     '''
     Extracts historical fuel price from FÍB and Gasvaktin.
@@ -296,3 +339,7 @@ def get_icelandic_fuel_price_history(req_date=None, logger=None):
     if logger is not None:
         logger.info('Finished parsing icelandic fuel price data.')
     return data
+
+
+if __name__ == '__main__':
+    get_crude_oil_rate_history_fallback()

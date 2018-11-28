@@ -9,7 +9,7 @@ import os
 
 import git
 
-from database.models import Currency, CrudeOilBarrelUSD, ExchangeRateOfISK
+from database.models import Currency, CrudeOilBarrelUSD, CrudeOilBarrelUSDfb, ExchangeRateOfISK
 from database.models import DieselPriceIcelandLiterISK, PetrolPriceIcelandLiterISK
 import database.db
 import endpoints
@@ -53,6 +53,16 @@ def fetch_crude_oil_rate_history(db, logger=None):
         record = db.session.query(CrudeOilBarrelUSD).filter_by(date=date_key).first()
         if record is None:
             record = CrudeOilBarrelUSD(date=date_key, rate=crude_data[date_key])
+            db.session.add(record)
+            commit_required = True
+    # fetch fallback crude oil rate data
+    fallback_crude_data = endpoints.get_crude_oil_rate_history_fallback(logger)
+    for date_key in fallback_crude_data:
+        if date_key == today_str:
+            continue
+        record = db.session.query(CrudeOilBarrelUSDfb).filter_by(date=date_key).first()
+        if record is None:
+            record = CrudeOilBarrelUSDfb(date=date_key, rate=fallback_crude_data[date_key])
             db.session.add(record)
             commit_required = True
     if commit_required:
@@ -189,8 +199,19 @@ def write_crude_oil_rate_history_to_file(db, logger=None):
         if logger is not None:
             logger.info('Writing to file "%s" ..' % (filename1, ))
         crude_oil_file1.write('date,price\n')
+        final_date = None
         for record in crude_oil_records:
+            final_date = record.date
             crude_oil_file1.write('%s,%s\n' % (record.date, record.rate))
+        # add filler data
+        if logger is not None:
+            logger.info('Adding crude oil filler data .. ')
+        assert(final_date is not None)
+        crude_oil_fallback_records = db.session.query(
+            CrudeOilBarrelUSDfb
+        ).filter(final_date < CrudeOilBarrelUSDfb.date).order_by(CrudeOilBarrelUSDfb.date)
+        for fallback_record in crude_oil_fallback_records:
+            crude_oil_file1.write('%s,%s\n' % (fallback_record.date, fallback_record.rate))
     us_dollar = db.session.query(Currency).filter_by(code='USD').first()
     assert(us_dollar is not None)
     crude_oil_records = db.session.query(CrudeOilBarrelUSD).order_by(CrudeOilBarrelUSD.date)
@@ -198,11 +219,15 @@ def write_crude_oil_rate_history_to_file(db, logger=None):
     # exchange rate for ISK from Central Bank of Iceland)
     bbl_to_litres = 158.987294928  # https://twitter.com/gasvaktin/status/993875638435090433
     filename2 = 'data/crude_oil_litres_isk.csv.txt'
+    if logger is not None:
+        logger.info('Calculating crude oil price to ISK and writing to data .. ')
     with open(filename2, mode='w', encoding='utf-8') as crude_oil_file2:
         if logger is not None:
             logger.info('Writing to file "%s" ..' % (filename2, ))
         crude_oil_file2.write('date,price\n')
+        final_date = None
         for crude_oil_record in crude_oil_records:
+            final_date = crude_oil_record.date
             isk_usd_rate = db.session.query(ExchangeRateOfISK).filter_by(
                 fk_currency=us_dollar.currency_id
             ).filter(
@@ -212,6 +237,27 @@ def write_crude_oil_rate_history_to_file(db, logger=None):
             price_per_liter_in_isk = (crude_oil_record.rate * isk_usd_rate.sell / bbl_to_litres)
             price_per_liter_in_isk = round(price_per_liter_in_isk, 2)
             crude_oil_file2.write('%s,%s\n' % (crude_oil_record.date, price_per_liter_in_isk))
+        # add filler data
+        if logger is not None:
+            logger.info('Adding crude oil filler data .. ')
+        assert(final_date is not None)
+        crude_oil_fallback_records = db.session.query(
+            CrudeOilBarrelUSDfb
+        ).filter(final_date < CrudeOilBarrelUSDfb.date).order_by(CrudeOilBarrelUSDfb.date)
+        for crude_oil_fallback_record in crude_oil_fallback_records:
+            isk_usd_rate = db.session.query(ExchangeRateOfISK).filter_by(
+                fk_currency=us_dollar.currency_id
+            ).filter(
+                ExchangeRateOfISK.date <= crude_oil_fallback_record.date
+            ).order_by(ExchangeRateOfISK.date.desc()).first()
+            assert(isk_usd_rate is not None)
+            price_per_liter_in_isk = (
+                crude_oil_fallback_record.rate * isk_usd_rate.sell / bbl_to_litres
+            )
+            price_per_liter_in_isk = round(price_per_liter_in_isk, 2)
+            crude_oil_file2.write(
+                '%s,%s\n' % (crude_oil_fallback_record.date, price_per_liter_in_isk)
+            )
     if logger is not None:
         logger.info('Finished writing crude oil rate history data to files.')
 
