@@ -1,6 +1,6 @@
 # gasvaktin-comparison
 
-Collection of fuel price related data, like world market price of crude oil and currency rates.
+Collection of fuel price related data, like world market price of crude oil and currency rates. Visual representation and comparison of this data is attempted at [gasvaktin.is/comparison/](https://gasvaktin.is/comparison/).
 
 ## Requirements
 
