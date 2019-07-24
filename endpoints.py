@@ -157,8 +157,8 @@ def get_crude_oil_rate_history(date_a=None, date_b=None, logger=None):
         date_datetime = datetime.datetime.strptime(date_txt, '%Y%m%d')
         date_isoformatted = date_datetime.strftime('%Y-%m-%d')
         if (date_isoformatted < start_date.strftime('%Y-%m-%d') or
-           end_date.strftime('%Y-%m-%d') <= date_isoformatted or
-           today.strftime('%Y-%m-%d') <= date_isoformatted):
+            end_date.strftime('%Y-%m-%d') <= date_isoformatted or
+                today.strftime('%Y-%m-%d') <= date_isoformatted):
             continue  # strip away data for unwanted days
         value_txt = table_row.findall('td')[3].text
         value_float = float(value_txt)
@@ -194,7 +194,7 @@ def get_crude_oil_rate_history_fallback(logger=None):
     res = requests.get(url, headers={'User-Agent': USER_AGENT})
     res.raise_for_status()
     html = lxml.etree.fromstring(res.content, lxml.etree.HTMLParser())
-    link = html.find('.//span/a[@href="/commodities/historical-prices/oil-price/USD?type=Brent"]')
+    link = html.find('.//span/a[@href="/commodities/historical-prices/oil-price/usd?type=brent"]')
     data_div = link.getparent().getparent().getparent()
     assert(data_div.tag == 'div')
     data_table = data_div.find('.//table')
