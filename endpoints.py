@@ -204,7 +204,12 @@ def get_crude_oil_rate_history_fallback(logger=None):
         if 'header-row' in tr_row.values():
             continue  # skip header row
         date_str = tr_row.findall('.//td')[0].text.strip()
-        price_closing = float(tr_row.findall('.//td')[1].text.strip())
+        try:
+            price_closing = float(tr_row.findall('.//td')[1].text.strip())
+        except ValueError:
+            # this is actually price_open, but sometimes price_closing is not provided, when that
+            # happens we fallback to price open
+            price_closing = float(tr_row.findall('.//td')[2].text.strip())
         # price_open = float(tr_row.findall('.//td')[2].text.strip())
         # price_daily_high = float(tr_row.findall('.//td')[3].text.strip())
         # price_daily_low = float(tr_row.findall('.//td')[4].text.strip())
