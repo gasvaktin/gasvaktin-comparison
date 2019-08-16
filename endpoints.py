@@ -216,6 +216,23 @@ def get_crude_oil_rate_history_fallback(logger=None):
         date_datetime = datetime.datetime.strptime(date_str, '%m/%d/%Y')
         date_isoformatted = date_datetime.strftime('%Y-%m-%d')
         data[date_isoformatted] = price_closing
+    # this page seems to have started to lag behind with the table we're reading data from, here's
+    # yet another fallback to try to grab the data and save the day
+    latest_prices = html.find('.//div[@class="quadruple-view"]')
+    keys = latest_prices.findall('.//div[@class="col-md-3 col-xs-6 black"]')
+    values = latest_prices.findall('.//div[@class="col-md-3 col-xs-6 text-right bold black"]')
+    latest_prices_data = {}
+    for i in range(0, len(keys)):
+        if i >= len(values):
+            break
+        latest_prices_data[keys[i].text.strip()] = values[i].text.strip()
+    if 'Trade Date' in latest_prices_data and 'Prev. Close' in latest_prices_data:
+        date_isostring = (datetime.datetime.strptime(
+            latest_prices_data['Trade Date'], '%m/%d/%Y'
+        ) - datetime.timedelta(days=1)).strftime('%Y-%m-%d')
+        value_float = float(latest_prices_data['Prev. Close'])
+        assert(value_float != 0.0)
+        data[date_isostring] = value_float
     if logger is not None:
         logger.info('Successfully fetched fallback crude data from markets.businessinsider.com')
     return data
@@ -347,4 +364,6 @@ def get_icelandic_fuel_price_history(req_date=None, logger=None):
 
 
 if __name__ == '__main__':
-    get_crude_oil_rate_history_fallback()
+    import pprint
+    print('running get_crude_oil_rate_history_fallback ..')
+    pprint.pprint(get_crude_oil_rate_history_fallback())
