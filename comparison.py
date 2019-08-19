@@ -3,6 +3,7 @@
 # ----------------------------------------------------------------------------------------------- #
 import argparse
 import configparser
+import csv
 import datetime
 import logging
 import os
@@ -13,6 +14,8 @@ from database.models import Currency, CrudeOilBarrelUSD, CrudeOilBarrelUSDfb, Ex
 from database.models import DieselPriceIcelandLiterISK, PetrolPriceIcelandLiterISK
 import database.db
 import endpoints
+
+Logger = None
 
 
 def setup_logger():
@@ -28,7 +31,7 @@ def setup_logger():
     return logger
 
 
-def fetch_crude_oil_rate_history(db, logger=None):
+def fetch_crude_oil_rate_history(db, logger=Logger):
     today = datetime.datetime.now()
     today_str = today.strftime('%Y-%m-%d')
     start_date = None
@@ -71,7 +74,7 @@ def fetch_crude_oil_rate_history(db, logger=None):
         logger.info('Finished fetching crude oil rate history.')
 
 
-def fetch_isk_rate_history(db, logger=None):
+def fetch_isk_rate_history(db, logger=Logger):
     today = datetime.datetime.now()
     last_record = db.session.query(ExchangeRateOfISK).order_by(
         ExchangeRateOfISK.date.desc()
@@ -139,7 +142,7 @@ def fetch_isk_rate_history(db, logger=None):
         logger.info('Finished fetching ISK rate history.')
 
 
-def fetch_icelandic_fuel_price_history(db, logger=None):
+def fetch_icelandic_fuel_price_history(db, logger=Logger):
     start_date = None
     last_petrol_record = db.session.query(PetrolPriceIcelandLiterISK).order_by(
         PetrolPriceIcelandLiterISK.date.desc()
@@ -151,7 +154,7 @@ def fetch_icelandic_fuel_price_history(db, logger=None):
         start_date = datetime.datetime.strptime(last_petrol_record.date, '%Y-%m-%d')
     if last_diesel_record is not None:
         if (start_date is None or
-           start_date > datetime.datetime.strptime(last_petrol_record.date, '%Y-%m-%d')):
+                start_date > datetime.datetime.strptime(last_petrol_record.date, '%Y-%m-%d')):
             start_date = datetime.datetime.strptime(last_petrol_record.date, '%Y-%m-%d')
     fuel_price_data = endpoints.get_icelandic_fuel_price_history(start_date, logger)
     commit_required = False
@@ -189,7 +192,7 @@ def fetch_icelandic_fuel_price_history(db, logger=None):
             logger.info(message)
 
 
-def write_crude_oil_rate_history_to_file(db, logger=None):
+def write_crude_oil_rate_history_to_file(db, logger=Logger):
     if logger is not None:
         logger.info('Writing crude oil rate history data to files ..')
     crude_oil_records = db.session.query(CrudeOilBarrelUSD).order_by(CrudeOilBarrelUSD.date)
@@ -262,7 +265,7 @@ def write_crude_oil_rate_history_to_file(db, logger=None):
         logger.info('Finished writing crude oil rate history data to files.')
 
 
-def write_isk_rate_history_to_files(db, logger=None):
+def write_isk_rate_history_to_files(db, logger=Logger):
     if logger is not None:
         logger.info('Writing isk rate history data to file ..')
     currencies = db.session.query(Currency)
@@ -285,7 +288,7 @@ def write_isk_rate_history_to_files(db, logger=None):
         logger.info('Finished writing isk rate history data to file.')
 
 
-def write_icelandic_fuel_price_history_to_files(db, logger=None):
+def write_icelandic_fuel_price_history_to_files(db, logger=Logger):
     if logger is not None:
         logger.info('Writing crude oil rate history data to files ..')
     filename1 = 'data/fuel_petrol_iceland_liter_isk.csv.txt'
@@ -307,7 +310,7 @@ def write_icelandic_fuel_price_history_to_files(db, logger=None):
     # the plain crude oil data from the Federal Reserve Bank of St Louis
     with open(filename2, mode='w', encoding='utf-8') as diesel_file:
         if logger is not None:
-            logger.info('Writing to file "%s" ..' % (filename1, ))
+            logger.info('Writing to file "%s" ..' % (filename2, ))
         diesel_file.write('date,price\n')
         for record in diesel_records:
             diesel_file.write('%s,%s\n' % (record.date, record.price))
@@ -315,7 +318,60 @@ def write_icelandic_fuel_price_history_to_files(db, logger=None):
         logger.info('Finished writing isk rate history data to file.')
 
 
-def commit_changes_to_git(db, config, logger=None):
+def write_crude_ratio(logger=Logger):
+    if logger is not None:
+        logger.info('Writing crude petrol price isk ratio data to files ..')
+    # get crude oil prices in ISK
+    crude_isk_data = []
+    crude_isk_filename = 'data/crude_oil_litres_isk.csv.txt'
+    with open(crude_isk_filename, mode='r', encoding='utf-8') as csvfile:
+        reader = csv.DictReader(csvfile)
+        for row in reader:
+            crude_isk_data.append(row)
+    # get petrol prices in ISK
+    petrol_isk_data = []
+    petrol_isk_filename = 'data/fuel_petrol_iceland_liter_isk.csv.txt'
+    with open(petrol_isk_filename, mode='r', encoding='utf-8') as csvfile:
+        reader = csv.DictReader(csvfile)
+        for row in reader:
+            petrol_isk_data.append(row)
+    # calculate crude petrol price isk ratio
+    crude_ratio_data = []
+    count_i = 0
+    count_i_end = len(crude_isk_data)
+    count_j = 0
+    count_j_end = len(petrol_isk_data)
+    while (count_i < count_i_end and count_j < count_j_end):
+        crude_isk_record = crude_isk_data[count_i]
+        petrol_isk_record = petrol_isk_data[count_j]
+        # find crude record for current petrol record
+        if crude_isk_record['date'] < petrol_isk_record['date']:
+            if (count_i + 1) < count_i_end:
+                if crude_isk_data[count_i + 1]['date'] <= petrol_isk_record['date']:
+                    count_i += 1
+                    continue
+        # calculate crude ratio for current crude record and petrol record
+        crude_ratio = float(crude_isk_record['price']) / float(petrol_isk_record['price'])
+        crude_ratio_rounded2digits = round(crude_ratio * 100) / 100.0
+        crude_ratio_data.append({
+            'date': petrol_isk_record['date'],
+            'ratio': crude_ratio_rounded2digits
+        })
+        # move to next petrol record
+        count_j += 1
+    # write data to file
+    filename = 'data/crude_ratio.csv.txt'
+    with open(filename, mode='w', encoding='utf-8') as crude_ratio_file:
+        if logger is not None:
+            logger.info('Writing to file "%s" ..' % (filename, ))
+        crude_ratio_file.write('date,ratio\n')
+        for record in crude_ratio_data:
+            crude_ratio_file.write('%s,%.2f\n' % (record['date'], record['ratio']))
+    if logger is not None:
+        logger.info('Finished Writing crude petrol price isk ratio data to files.')
+
+
+def commit_changes_to_git(db, config, logger=Logger):
     timestamp = datetime.datetime.now().strftime('%Y-%m-%dT%H:%M')
     watchlist = [
         'data/crude_oil_barrel_usd.csv.txt',
@@ -331,7 +387,8 @@ def commit_changes_to_git(db, config, logger=None):
         'data/currency_rate_isk_usd.csv.txt',
         'data/currency_rate_isk_xdr.csv.txt',
         'data/fuel_diesel_iceland_liter_isk.csv.txt',
-        'data/fuel_petrol_iceland_liter_isk.csv.txt'
+        'data/fuel_petrol_iceland_liter_isk.csv.txt',
+        'data/crude_ratio.csv.txt',
     ]
     git_ssh_identity_file = os.path.expanduser(config.get('Comparison', 'ssh_id_file'))
     assert(os.path.exists(git_ssh_identity_file) and os.path.isfile(git_ssh_identity_file))
@@ -364,10 +421,10 @@ def commit_changes_to_git(db, config, logger=None):
             logger.info('Repository is clean.')
 
 
-def main(use_logger=True):
-    logger = None
-    if use_logger:
-        logger = setup_logger()
+def main(init_logger=True):
+    global Logger
+    if init_logger:
+        Logger = setup_logger()
     default_config_file = os.path.join(os.getcwd(), 'config.cfg')
     assert(os.path.exists(default_config_file) and os.path.isfile(default_config_file))
     parser = argparse.ArgumentParser(description='Gasvaktin Comparison')
@@ -389,45 +446,46 @@ def main(use_logger=True):
     config = configparser.RawConfigParser()
     if os.path.exists(config_pwd) and os.path.isfile(config_pwd):
         config.read(config_pwd)
-        if logger is not None:
+        if Logger is not None:
             if config_pwd == default_config_file:
-                logger.info('Using default config file ..')
+                Logger.info('Using default config file ..')
             else:
-                logger.info('Using config file "%s" ..' % (pargs.config, ))
+                Logger.info('Using config file "%s" ..' % (pargs.config, ))
     else:
         assert(config_pwd != default_config_file)
-        if logger is not None:
-            logger.warning('Config file "%s" not found, using default config ..' % (
+        if Logger is not None:
+            Logger.warning('Config file "%s" not found, using default config ..' % (
                 pargs.config,
             ))
         config.read(default_config_file)
-    if logger is not None:
-        logger.info('Initiating database ..')
+    if Logger is not None:
+        Logger.info('Initiating database ..')
     db_uri = 'sqlite:///database/database.sqlite'
     db_init = True
     database.db.setup_connection(db_uri)
     if db_init:
         database.db.init_db()
-    if logger is not None:
-        logger.info('.. database initialized.')
+    if Logger is not None:
+        Logger.info('.. database initialized.')
     if pargs.fetch_data:
-        if logger is not None:
-            logger.info('Running --fetch-data ..')
-        fetch_crude_oil_rate_history(database.db, logger)
-        fetch_isk_rate_history(database.db, logger)
-        fetch_icelandic_fuel_price_history(database.db, logger)
+        if Logger is not None:
+            Logger.info('Running --fetch-data ..')
+        fetch_crude_oil_rate_history(database.db)
+        fetch_isk_rate_history(database.db)
+        fetch_icelandic_fuel_price_history(database.db)
     if pargs.write_data:
-        if logger is not None:
-            logger.info('Running --write-data ..')
-        write_crude_oil_rate_history_to_file(database.db, logger)
-        write_isk_rate_history_to_files(database.db, logger)
-        write_icelandic_fuel_price_history_to_files(database.db, logger)
+        if Logger is not None:
+            Logger.info('Running --write-data ..')
+        write_crude_oil_rate_history_to_file(database.db)
+        write_isk_rate_history_to_files(database.db)
+        write_icelandic_fuel_price_history_to_files(database.db)
+        write_crude_ratio()
     if pargs.auto_commit:
-        if logger is not None:
-            logger.info('Running --auto-commit ..')
-        commit_changes_to_git(database.db, config, logger)
-    if logger is not None:
-        logger.info('Done.')
+        if Logger is not None:
+            Logger.info('Running --auto-commit ..')
+        commit_changes_to_git(database.db, config)
+    if Logger is not None:
+        Logger.info('Done.')
 
 
 if __name__ == '__main__':
