@@ -341,6 +341,10 @@ def write_crude_ratio(logger=Logger):
     count_i_end = len(crude_isk_data)
     count_j = 0
     count_j_end = len(petrol_isk_data)
+    # note: here be accuracy issue, data in is 2 decimal, but data out is 4 decimal
+    # but the thing is, the added noise of 4 decimal places looks better in a plotted graph, and
+    # the accuracy error is minimal enough to not cause visible falsities on a plotted graph
+    cr_accuracy = 10000  # 4 decimal places
     while (count_i < count_i_end and count_j < count_j_end):
         crude_isk_record = crude_isk_data[count_i]
         petrol_isk_record = petrol_isk_data[count_j]
@@ -352,13 +356,23 @@ def write_crude_ratio(logger=Logger):
                     continue
         # calculate crude ratio for current crude record and petrol record
         crude_ratio = float(crude_isk_record['price']) / float(petrol_isk_record['price'])
-        crude_ratio_rounded2digits = round(crude_ratio * 100) / 100.0
+        crude_ratio_rounded = round(crude_ratio * cr_accuracy) / float(cr_accuracy)
+        crude_ratio_date = petrol_isk_record['date']
+        if crude_isk_record['date'] > petrol_isk_record['date']:
+            crude_ratio_date = crude_isk_record['date']
         crude_ratio_data.append({
-            'date': petrol_isk_record['date'],
-            'ratio': crude_ratio_rounded2digits
+            'date': crude_ratio_date,
+            'ratio': crude_ratio_rounded
         })
-        # move to next petrol record
-        count_j += 1
+        # move to next crude or petrol record
+        if (count_i + 1) >= count_i_end:
+            count_j += 1
+        elif (count_j + 1) >= count_j_end:
+            count_i += 1
+        elif crude_isk_data[count_i + 1]['date'] < petrol_isk_data[count_j + 1]['date']:
+            count_i += 1
+        else:
+            count_j += 1
     # write data to file
     filename = 'data/crude_ratio.csv.txt'
     with open(filename, mode='w', encoding='utf-8') as crude_ratio_file:
@@ -366,9 +380,59 @@ def write_crude_ratio(logger=Logger):
             logger.info('Writing to file "%s" ..' % (filename, ))
         crude_ratio_file.write('date,ratio\n')
         for record in crude_ratio_data:
-            crude_ratio_file.write('%s,%.2f\n' % (record['date'], record['ratio']))
+            crude_ratio_file.write('%s,%.4f\n' % (record['date'], record['ratio']))
     if logger is not None:
         logger.info('Finished Writing crude petrol price isk ratio data to files.')
+
+
+def calculate_comparison_data(mydate=None, logger=Logger):
+    # WIP ..
+    if mydate is None:
+        mydate = datetime.datetime.now()
+    # read crude oil price (isk/liter) for @mydate
+    # find out when price was the same as on @mydate more than 3 months before @mydate
+    # read crude oil price (usd/bbl) for those two time periods
+    # read isk-usd rate for those two time periods
+    # read icelandic petrol price for those two time periods
+    # read icelandic diesel price for those two time periods
+    # gather data together and return it
+    comparison_data = {
+        'c_date': mydate.strfdate('%Y-%m-%d'),
+        'before_date': None,
+        'crude_oil_isk_liter': {
+            'c_date': None,
+            'before_date_1': None,
+            'before_date_2': None
+        },
+        'crude_oil_bbl_barrel': {
+            'c_date': None,
+            'before_date_1': None,
+            'before_date_2': None
+        },
+        'rate_isk_usd': {
+            'c_date': None,
+            'before_date_1': None,
+            'before_date_2': None
+        },
+        'price_petrol_iceland': {
+            'c_date': None,
+            'before_date_1': None,
+            'before_date_2': None
+        },
+        'price_diesel_iceland': {
+            'c_date': None,
+            'before_date_1': None,
+            'before_date_2': None
+        },
+        'prediction': {
+            'petrol': 0.0,
+            'diesel': 0.0
+        }
+    }
+    # later use this to construct csv table with maybe over 20 columns
+    #
+    # comparison_prediction_filename = 'data/comparison_prediction.csv.txt'
+    return comparison_data
 
 
 def commit_changes_to_git(db, config, logger=Logger):
