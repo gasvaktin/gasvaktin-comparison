@@ -31,7 +31,9 @@ def setup_logger():
     return logger
 
 
-def fetch_crude_oil_rate_history(db, logger=Logger):
+def fetch_crude_oil_rate_history(db, logger=None):
+    if logger is None:
+        logger = Logger
     today = datetime.datetime.now()
     today_str = today.strftime('%Y-%m-%d')
     start_date = None
@@ -74,7 +76,9 @@ def fetch_crude_oil_rate_history(db, logger=Logger):
         logger.info('Finished fetching crude oil rate history.')
 
 
-def fetch_isk_rate_history(db, logger=Logger):
+def fetch_isk_rate_history(db, logger=None):
+    if logger is None:
+        logger = Logger
     today = datetime.datetime.now()
     last_record = db.session.query(ExchangeRateOfISK).order_by(
         ExchangeRateOfISK.date.desc()
@@ -142,7 +146,9 @@ def fetch_isk_rate_history(db, logger=Logger):
         logger.info('Finished fetching ISK rate history.')
 
 
-def fetch_icelandic_fuel_price_history(db, logger=Logger):
+def fetch_icelandic_fuel_price_history(db, logger=None):
+    if logger is None:
+        logger = Logger
     start_date = None
     last_petrol_record = db.session.query(PetrolPriceIcelandLiterISK).order_by(
         PetrolPriceIcelandLiterISK.date.desc()
@@ -192,7 +198,9 @@ def fetch_icelandic_fuel_price_history(db, logger=Logger):
             logger.info(message)
 
 
-def write_crude_oil_rate_history_to_file(db, logger=Logger):
+def write_crude_oil_rate_history_to_file(db, logger=None):
+    if logger is None:
+        logger = Logger
     if logger is not None:
         logger.info('Writing crude oil rate history data to files ..')
     crude_oil_records = db.session.query(CrudeOilBarrelUSD).order_by(CrudeOilBarrelUSD.date)
@@ -265,7 +273,9 @@ def write_crude_oil_rate_history_to_file(db, logger=Logger):
         logger.info('Finished writing crude oil rate history data to files.')
 
 
-def write_isk_rate_history_to_files(db, logger=Logger):
+def write_isk_rate_history_to_files(db, logger=None):
+    if logger is None:
+        logger = Logger
     if logger is not None:
         logger.info('Writing isk rate history data to file ..')
     currencies = db.session.query(Currency)
@@ -288,7 +298,9 @@ def write_isk_rate_history_to_files(db, logger=Logger):
         logger.info('Finished writing isk rate history data to file.')
 
 
-def write_icelandic_fuel_price_history_to_files(db, logger=Logger):
+def write_icelandic_fuel_price_history_to_files(db, logger=None):
+    if logger is None:
+        logger = Logger
     if logger is not None:
         logger.info('Writing crude oil rate history data to files ..')
     filename1 = 'data/fuel_petrol_iceland_liter_isk.csv.txt'
@@ -318,7 +330,9 @@ def write_icelandic_fuel_price_history_to_files(db, logger=Logger):
         logger.info('Finished writing isk rate history data to file.')
 
 
-def write_crude_ratio(logger=Logger):
+def write_crude_ratio(logger=None):
+    if logger is None:
+        logger = Logger
     if logger is not None:
         logger.info('Writing crude petrol price isk ratio data to files ..')
     # get crude oil prices in ISK
@@ -344,6 +358,8 @@ def write_crude_ratio(logger=Logger):
     # note: here be accuracy issue, data in is 2 decimal, but data out is 4 decimal
     # but the thing is, the added noise of 4 decimal places looks better in a plotted graph, and
     # the accuracy error is minimal enough to not cause visible falsities on a plotted graph
+    # the correct way to go to fix this accuracy issue would be to recalculate neccesary data in,
+    # instead of using already calculated data that was only stored with 2 decimal places
     cr_accuracy = 10000  # 4 decimal places
     while (count_i < count_i_end and count_j < count_j_end):
         crude_isk_record = crude_isk_data[count_i]
@@ -385,7 +401,9 @@ def write_crude_ratio(logger=Logger):
         logger.info('Finished Writing crude petrol price isk ratio data to files.')
 
 
-def calculate_comparison_data(mydate=None, logger=Logger):
+def calculate_comparison_data(mydate=None, logger=None):
+    if logger is None:
+        logger = Logger
     # WIP ..
     if mydate is None:
         mydate = datetime.datetime.now()
@@ -435,7 +453,9 @@ def calculate_comparison_data(mydate=None, logger=Logger):
     return comparison_data
 
 
-def commit_changes_to_git(db, config, logger=Logger):
+def commit_changes_to_git(db, config, logger=None):
+    if logger is None:
+        logger = Logger
     timestamp = datetime.datetime.now().strftime('%Y-%m-%dT%H:%M')
     watchlist = [
         'data/crude_oil_barrel_usd.csv.txt',
@@ -462,7 +482,8 @@ def commit_changes_to_git(db, config, logger=Logger):
         assert(repo.active_branch.name == 'master')
         repo.git.pull()
         if repo.is_dirty():
-            logger.info('Repository is dirty ..')
+            if logger is not None:
+                logger.info('Repository is dirty ..')
             commit_required = False
             for item in repo.index.diff(None):
                 if item.a_path in watchlist:
