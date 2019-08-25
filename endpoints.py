@@ -233,6 +233,28 @@ def get_crude_oil_rate_history_fallback(logger=None):
         value_float = float(latest_prices_data['Prev. Close'])
         assert(value_float != 0.0)
         data[date_isostring] = value_float
+    # still another fallback, to yoink closing price for fridays :3
+    headline_table = html.find('.//table[@class="table snapshot-headline-table"]')
+    if headline_table is not None:
+        head_price = headline_table.find('.//span[@class="aktien-big-font text-nowrap"]')
+        try:
+            value_float = float(head_price[0][0].text)
+        except (IndexError, TypeError, ValueError):
+            value_float = None
+        if value_float is not None and bool(value_float):
+            head_time = headline_table.find('.//span[@class="aktien-time"]')
+            try:
+                time_str = head_time[0][0].text
+            except (IndexError, TypeError, ValueError):
+                time_str = None
+            if time_str is not None and time_str.startswith('Official Close '):
+                try:
+                    time_date = datetime.datetime.strptime(time_str[15:], '%m/%d/%Y')
+                except ValueError:
+                    time_date = None
+                if time_date is not None:
+                    date_isostring = time_date.strftime('%Y-%m-%d')
+                    data[date_isostring] = value_float
     if logger is not None:
         logger.info('Successfully fetched fallback crude data from markets.businessinsider.com')
     return data
