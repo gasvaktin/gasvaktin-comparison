@@ -227,9 +227,16 @@ def get_crude_oil_rate_history_fallback(logger=None):
             break
         latest_prices_data[keys[i].text.strip()] = values[i].text.strip()
     if 'Trade Date' in latest_prices_data and 'Prev. Close' in latest_prices_data:
-        date_isostring = (datetime.datetime.strptime(
+        date_datetime = (datetime.datetime.strptime(  # yesterday
             latest_prices_data['Trade Date'], '%m/%d/%Y'
-        ) - datetime.timedelta(days=1)).strftime('%Y-%m-%d')
+        ) - datetime.timedelta(days=1))
+        # we want to skip weekends for this fallback so "previous close" last friday doesn't show
+        # as previous close on saturday or sunday when checked on mondays
+        if date_datetime.weekday() == 6:  # sunday
+            date_datetime = (date_datetime - datetime.timedelta(days=2))
+        elif date_datetime.weekday() == 5:  # saturday
+            date_datetime = (date_datetime - datetime.timedelta(days=1))
+        date_isostring = date_datetime.strftime('%Y-%m-%d')
         value_float = float(latest_prices_data['Prev. Close'])
         assert(value_float != 0.0)
         data[date_isostring] = value_float
