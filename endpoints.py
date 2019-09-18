@@ -194,11 +194,15 @@ def get_crude_oil_rate_history_fallback(logger=None):
     res = requests.get(url, headers={'User-Agent': USER_AGENT})
     res.raise_for_status()
     html = lxml.etree.fromstring(res.content, lxml.etree.HTMLParser())
-    link = html.find('.//span/a[@href="/commodities/historical-prices/oil-price/usd?type=brent"]')
-    data_div = link.getparent().getparent().getparent()
-    assert(data_div.tag == 'div')
-    data_table = data_div.find('.//table')
+    # kinda naive and fragile search method for the data table, so let's do some assertions
+    data_table = html.find('.//table[@class="table instruments"]')
     assert(data_table is not None)
+    assert(data_table.tag == 'table')
+    assert(data_table[0][0].text.strip() == 'Date')
+    assert(data_table[0][1].text.strip() == 'Closing Price')
+    assert(data_table[0][2].text.strip() == 'Open')
+    assert(data_table[0][3].text.strip() == 'Daily High')
+    assert(data_table[0][4].text.strip() == 'Daily Low')
     data = {}
     for tr_row in data_table.findall('.//tr'):
         if 'header-row' in tr_row.values():
