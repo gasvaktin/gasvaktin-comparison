@@ -104,9 +104,9 @@ def get_isk_exchange_rate(req_date, logger=None):
         currency_data = {
             'name': columns[0].text.strip(),
             'code': columns[1].text,
-            'buy': float(columns[2].text.replace(',', '.')),
-            'sell': float(columns[3].text.replace(',', '.')),
-            'mean': float(columns[4].text.replace(',', '.')),
+            'buy': None,
+            'sell': None,
+            'mean': float(columns[2].text.replace(',', '.')),
         }
         data['currencies'][currency_data['code'].lower()] = currency_data
     assert(len(data['currencies'].keys()) > 0)

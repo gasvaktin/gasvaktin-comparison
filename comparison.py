@@ -292,7 +292,10 @@ def write_isk_rate_history_to_files(db, logger=None):
             isk_file.write('date,buy,sell,mean\n')
             for record in records:
                 isk_file.write('%s,%s,%s,%s\n' % (
-                    record.date, record.buy, record.sell, record.mean
+                    record.date,
+                    record.buy if record.buy != 0.0 else '',
+                    record.sell if record.sell != 0.0 else '',
+                    record.mean if record.mean != 0.0 else ''
                 ))
     if logger is not None:
         logger.info('Finished writing isk rate history data to file.')
@@ -460,16 +463,40 @@ def commit_changes_to_git(db, config, logger=None):
     watchlist = [
         'data/crude_oil_barrel_usd.csv.txt',
         'data/crude_oil_litres_isk.csv.txt',
+        'data/currency_rate_isk_aud.csv.txt',
+        'data/currency_rate_isk_bgn.csv.txt',
+        'data/currency_rate_isk_brl.csv.txt',
         'data/currency_rate_isk_cad.csv.txt',
         'data/currency_rate_isk_chf.csv.txt',
+        'data/currency_rate_isk_cny.csv.txt',
+        'data/currency_rate_isk_czk.csv.txt',
         'data/currency_rate_isk_dkk.csv.txt',
         'data/currency_rate_isk_eur.csv.txt',
         'data/currency_rate_isk_gbp.csv.txt',
+        'data/currency_rate_isk_hkd.csv.txt',
+        'data/currency_rate_isk_hrk.csv.txt',
+        'data/currency_rate_isk_huf.csv.txt',
+        'data/currency_rate_isk_ils.csv.txt',
+        'data/currency_rate_isk_inr.csv.txt',
+        'data/currency_rate_isk_jmd.csv.txt',
         'data/currency_rate_isk_jpy.csv.txt',
+        'data/currency_rate_isk_krw.csv.txt',
+        'data/currency_rate_isk_mxn.csv.txt',
+        'data/currency_rate_isk_ngn.csv.txt',
         'data/currency_rate_isk_nok.csv.txt',
+        'data/currency_rate_isk_nzd.csv.txt',
+        'data/currency_rate_isk_pln.csv.txt',
+        'data/currency_rate_isk_rub.csv.txt',
+        'data/currency_rate_isk_sar.csv.txt',
         'data/currency_rate_isk_sek.csv.txt',
+        'data/currency_rate_isk_sgd.csv.txt',
+        'data/currency_rate_isk_srd.csv.txt',
+        'data/currency_rate_isk_thb.csv.txt',
+        'data/currency_rate_isk_try.csv.txt',
+        'data/currency_rate_isk_twd.csv.txt',
         'data/currency_rate_isk_usd.csv.txt',
         'data/currency_rate_isk_xdr.csv.txt',
+        'data/currency_rate_isk_zar.csv.txt',
         'data/fuel_diesel_iceland_liter_isk.csv.txt',
         'data/fuel_petrol_iceland_liter_isk.csv.txt',
         'data/crude_ratio.csv.txt',
