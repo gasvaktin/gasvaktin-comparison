@@ -245,7 +245,14 @@ def write_crude_oil_rate_history_to_file(db, logger=None):
                 ExchangeRateOfISK.date <= crude_oil_record.date
             ).order_by(ExchangeRateOfISK.date.desc()).first()
             assert(isk_usd_rate is not None)
-            price_per_liter_in_isk = (crude_oil_record.rate * isk_usd_rate.sell / bbl_to_litres)
+            if isk_usd_rate.sell != 0.0:
+                price_per_liter_in_isk = (
+                    crude_oil_record.rate * isk_usd_rate.sell / bbl_to_litres
+                )
+            else:
+                price_per_liter_in_isk = (
+                    crude_oil_record.rate * isk_usd_rate.mean / bbl_to_litres
+                )
             price_per_liter_in_isk = round(price_per_liter_in_isk, 2)
             crude_oil_file2.write('%s,%s\n' % (crude_oil_record.date, price_per_liter_in_isk))
         # add filler data
@@ -262,9 +269,14 @@ def write_crude_oil_rate_history_to_file(db, logger=None):
                 ExchangeRateOfISK.date <= crude_oil_fallback_record.date
             ).order_by(ExchangeRateOfISK.date.desc()).first()
             assert(isk_usd_rate is not None)
-            price_per_liter_in_isk = (
-                crude_oil_fallback_record.rate * isk_usd_rate.sell / bbl_to_litres
-            )
+            if isk_usd_rate.sell != 0.0:
+                price_per_liter_in_isk = (
+                    crude_oil_fallback_record.rate * isk_usd_rate.sell / bbl_to_litres
+                )
+            else:
+                price_per_liter_in_isk = (
+                    crude_oil_fallback_record.rate * isk_usd_rate.mean / bbl_to_litres
+                )
             price_per_liter_in_isk = round(price_per_liter_in_isk, 2)
             crude_oil_file2.write(
                 '%s,%s\n' % (crude_oil_fallback_record.date, price_per_liter_in_isk)
