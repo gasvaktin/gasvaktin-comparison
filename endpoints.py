@@ -1,9 +1,11 @@
 #!/usr/bin/python3
 # -*- coding: utf-8 -*-
 # ----------------------------------------------------------------------------------------------- #
+import calendar
 import csv
 import datetime
 import io
+import re
 import time
 
 import lxml.etree
@@ -182,90 +184,75 @@ def get_crude_oil_rate_history_fallback(logger=None):
 
     Usage:  res_data = get_crude_oil_rate_history_fallback()
     Before: Nothing
-    After:  @res_data is a dict containing crude oil price rate for the past few (~10) days.
+    After:  @res_data is a dict containing crude oil price rate for the past year.
 
     Note: Data extracted from this should not be directly mixed with data from
-          `get_crude_oil_rate_history` because that data is from the European market but this data
-          is from the North-American market.
+          `get_crude_oil_rate_history` because these two data sources aren't guaranteed to be in
+          harmony with each other.
     '''
     if logger is not None:
         logger.info('Fetching fallback crude data from markets.businessinsider.com ..')
     url = 'https://markets.businessinsider.com/commodities/oil-price/usd?type=brent'
-    res = requests.get(url, headers={'User-Agent': USER_AGENT})
+    session = requests.Session()
+    res = session.get(url, headers={'User-Agent': USER_AGENT})
     res.raise_for_status()
     html = lxml.etree.fromstring(res.content, lxml.etree.HTMLParser())
-    # kinda naive and fragile search method for the data table, so let's do some assertions
-    data_table = html.find('.//table[@class="table instruments"]')
-    assert(data_table is not None)
-    assert(data_table.tag == 'table')
-    assert(data_table[0][0].text.strip() == 'Date')
-    assert(data_table[0][1].text.strip() == 'Closing Price')
-    assert(data_table[0][2].text.strip() == 'Open')
-    assert(data_table[0][3].text.strip() == 'Daily High')
-    assert(data_table[0][4].text.strip() == 'Daily Low')
-    data = {}
-    for tr_row in data_table.findall('.//tr'):
-        if 'header-row' in tr_row.values():
-            continue  # skip header row
-        date_str = tr_row.findall('.//td')[0].text.strip()
-        try:
-            price_closing = float(tr_row.findall('.//td')[1].text.strip())
-        except ValueError:
-            # this is actually price_open, but sometimes price_closing is not provided, when that
-            # happens we fallback to price open
-            price_closing = float(tr_row.findall('.//td')[2].text.strip())
-        # price_open = float(tr_row.findall('.//td')[2].text.strip())
-        # price_daily_high = float(tr_row.findall('.//td')[3].text.strip())
-        # price_daily_low = float(tr_row.findall('.//td')[4].text.strip())
-        date_datetime = datetime.datetime.strptime(date_str, '%m/%d/%Y')
-        date_isoformatted = date_datetime.strftime('%Y-%m-%d')
-        data[date_isoformatted] = price_closing
-    # this page seems to have started to lag behind with the table we're reading data from, here's
-    # yet another fallback to try to grab the data and save the day
-    latest_prices = html.find('.//div[@class="quadruple-view"]')
-    keys = latest_prices.findall('.//div[@class="col-md-3 col-xs-6 black"]')
-    values = latest_prices.findall('.//div[@class="col-md-3 col-xs-6 text-right bold black"]')
-    latest_prices_data = {}
-    for i in range(0, len(keys)):
-        if i >= len(values):
+    script_text = None
+    for script_element in html.findall('.//script'):
+        if script_element.keys() == [] and 'var detailChartViewmodel = {' in script_element.text:
+            script_text = script_element.text
             break
-        latest_prices_data[keys[i].text.strip()] = values[i].text.strip()
-    if 'Trade Date' in latest_prices_data and 'Prev. Close' in latest_prices_data:
-        date_datetime = (datetime.datetime.strptime(  # yesterday
-            latest_prices_data['Trade Date'], '%m/%d/%Y'
-        ) - datetime.timedelta(days=1))
-        # we want to skip weekends for this fallback so "previous close" last friday doesn't show
-        # as previous close on saturday or sunday when checked on mondays
-        if date_datetime.weekday() == 6:  # sunday
-            date_datetime = (date_datetime - datetime.timedelta(days=2))
-        elif date_datetime.weekday() == 5:  # saturday
-            date_datetime = (date_datetime - datetime.timedelta(days=1))
-        date_isostring = date_datetime.strftime('%Y-%m-%d')
-        value_float = float(latest_prices_data['Prev. Close'])
-        assert(value_float != 0.0)
-        data[date_isostring] = value_float
-    # still another fallback, to yoink closing price for fridays :3
-    headline_table = html.find('.//table[@class="table snapshot-headline-table"]')
-    if headline_table is not None:
-        head_price = headline_table.find('.//span[@class="aktien-big-font text-nowrap"]')
-        try:
-            value_float = float(head_price[0][0].text)
-        except (IndexError, TypeError, ValueError):
-            value_float = None
-        if value_float is not None and bool(value_float):
-            head_time = headline_table.find('.//span[@class="aktien-time"]')
-            try:
-                time_str = head_time[0][0].text
-            except (IndexError, TypeError, ValueError):
-                time_str = None
-            if time_str is not None and time_str.startswith('Official Close '):
-                try:
-                    time_date = datetime.datetime.strptime(time_str[15:], '%m/%d/%Y')
-                except ValueError:
-                    time_date = None
-                if time_date is not None:
-                    date_isostring = time_date.strftime('%Y-%m-%d')
-                    data[date_isostring] = value_float
+    assert(script_text is not None)
+    re_instrument_type = re.search(r'(?<="InstrumentType" : ")([^"]*)(?=")', script_text)
+    re_tkdata = re.search(r'(?<="TKData" : ")([^"]*)(?=")', script_text)
+    assert(re_instrument_type is not None)
+    assert(re_tkdata is not None)
+    now = datetime.datetime.utcnow()
+    now_str = now.strftime('%Y-%m-%d')
+    year_days = 365
+    if (
+        (calendar.isleap(now.year) and now.month > 2) or
+        (calendar.isleap(now.year - 1) and now.month <= 2)
+    ):
+        year_days = 366
+    last_year = (datetime.datetime.utcnow() - datetime.timedelta(days=year_days))
+    then = (last_year - datetime.timedelta(days=(31 + 30)))
+    chart_data_url = (
+        'https://markets.businessinsider.com/Ajax/Chart_GetChartData?'
+        'instrumentType={instrument_type}&'
+        'tkData={tk_data}&'
+        'from={date_from}&'
+        'to={date_to}'
+    ).format(
+        instrument_type=re_instrument_type.group(),
+        tk_data=re_tkdata.group(),
+        date_from=then.strftime('%Y%m%d'),
+        date_to=now.strftime('%Y%m%d')
+    )
+    chart_data_headers = {
+        'User-Agent': USER_AGENT,
+        'accept': 'application/json, text/plain, */*',
+        'accept-encoding': 'gzip, deflate',
+        'accept-language': 'en-US,en;q=0.9',
+        'referer': 'https://markets.businessinsider.com/commodities/oil-price/usd?type=brent',
+        'sec-fetch-dest': 'empty',
+        'sec-fetch-mode': 'cors',
+        'sec-fetch-site': 'same-origin'
+    }
+    res2 = session.get(chart_data_url, headers=chart_data_headers)
+    res2.raise_for_status()
+    chart_data = res2.json()
+    assert(type(chart_data) is list)
+    data = {}
+    for data_item in chart_data:
+        assert('Close' in data_item)
+        assert(type(data_item['Close']) in (float, int))
+        assert(type(data_item['Date']) is str)
+        item_datetime = datetime.datetime.strptime(data_item['Date'], '%Y-%m-%d %H:%M')
+        item_date_str = item_datetime.strftime('%Y-%m-%d')
+        item_value = float(data_item['Close'])
+        if now_str > item_date_str:
+            data[item_date_str] = item_value
     if logger is not None:
         logger.info('Successfully fetched fallback crude data from markets.businessinsider.com')
     return data
