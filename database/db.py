@@ -7,7 +7,7 @@ from sqlalchemy.orm import scoped_session, sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
 
 # SQLAlchemy - Declarative method
-# http://flask.pocoo.org/docs/1.0/patterns/sqlalchemy/#declarative
+# https://docs.sqlalchemy.org/en/13/orm/extensions/declarative/basic_use.html
 
 engine = None
 session = None
