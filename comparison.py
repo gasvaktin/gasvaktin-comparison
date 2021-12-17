@@ -1,10 +1,10 @@
 #!/usr/bin/python3
-# -*- coding: utf-8 -*-
 # ----------------------------------------------------------------------------------------------- #
 import argparse
 import configparser
 import csv
 import datetime
+import json
 import logging
 import os
 
@@ -468,6 +468,114 @@ def calculate_comparison_data(mydate=None, logger=None):
     return comparison_data
 
 
+def read_and_write_price_diff_data(config, logger=None, fromdate=None, todate=None):
+    if logger is None:
+        logger = Logger
+    commit_ids_with_bad_data = [
+        'a0783100209f0cf43b28271e3433c2c56c650447',
+        '821ccc907fec62415cc6d57f93d953205fd4d331',
+        'fbf5eb81cbca3ed2091280b6cb6746975d309616',
+        'ab4f01ccbe5486adc1ee838a892344035d4cc86b',
+        'f5439ce43ae49d5926a48a9be52888d56075c8f1',
+        'b050ad1a673223f5a2fe2993997041614484855f',
+        '5c031c459ada0b95347da63c9e33d83954a8e609',
+        '62b37a61ce8e946655fda872674689a6b6337205',
+        '860c1e206f15e39abd2ea41c6aeb322d28675d8e',
+        '96a558c64333ad970cd0c05c5fa79cafdaee7c13',
+        'd430fa2a0b7a34df4843f21a717e6d4a971aa7e6',
+        '71a03f6fdc48fda2213ed2e37ff6ee66016bb853',
+    ]
+    gasvaktin_repo_path = os.path.expanduser(config.get('Comparison', 'gasvaktin_git_directory'))
+    git_ssh_identity_file = os.path.expanduser(config.get('Comparison', 'ssh_id_file'))
+    assert(os.path.exists(git_ssh_identity_file) and os.path.isfile(git_ssh_identity_file))
+    git_ssh_cmd = 'ssh -i %s' % (git_ssh_identity_file, )
+    price_diff_data = []
+    if logger is not None:
+        logger.info('Reading price diff data from gasvaktin git ..')
+    with git.Git().custom_environment(GIT_SSH_COMMAND=git_ssh_cmd):
+        repo = git.Repo(gasvaktin_repo_path)
+        assert(repo.active_branch.name == 'master')
+        repo.git.pull()
+        assert(repo.is_dirty() is False)
+        # read data from repo
+        path = 'vaktin/gas.json'
+        commits_generator = (
+            (commit, (commit.tree / path).data_stream.read())
+            for commit in repo.iter_commits(paths=path)
+        )
+        commits_list = []  # consuming generator to list because want to reverse it :(
+        for commit, filecontents in commits_generator:
+            if not commit.message.startswith('auto.prices.update'):
+                # we only need to read from auto.prices.update commits
+                # so we skip all the others
+                continue
+            if commit.message.startswith('auto.prices.update.min'):
+                # skip the 'min' auto commits
+                continue
+            timestamp_text = commit.message[19:35]
+            # skip bad price changes
+            if commit.hexsha in commit_ids_with_bad_data:
+                continue
+            timestamp = datetime.datetime.strptime(timestamp_text, '%Y-%m-%dT%H:%M')
+            if fromdate is not None and timestamp < fromdate:
+                # ignore price changes before from-date if provided
+                continue
+            if todate is not None and todate < timestamp:
+                # ignore price changes after to-date if provided
+                continue
+            stations = json.loads(filecontents)
+            commits_list.append((timestamp_text, stations))
+        commits_list_reversed = reversed(commits_list)
+        for timestamp_text, stations in commits_list_reversed:
+            lowest_bensin = None
+            highest_bensin = None
+            bensin_diff = None
+            lowest_diesel = None
+            highest_diesel = None
+            diesel_diff = None
+            for station in stations['stations']:
+                bensin95 = station['bensin95']
+                diesel = station['diesel']
+                if lowest_bensin is None or lowest_bensin > bensin95:
+                    lowest_bensin = bensin95
+                if highest_bensin is None or highest_bensin < bensin95:
+                    highest_bensin = bensin95
+                if lowest_diesel is None or lowest_diesel > diesel:
+                    lowest_diesel = diesel
+                if highest_diesel is None or highest_diesel < diesel:
+                    highest_diesel = diesel
+            # first week of costco, not in git history unfortunately
+            if '2017-05-19T08:00' < timestamp_text and timestamp_text < '2017-06-01T12:00':
+                lowest_bensin = 169.9
+                lowest_diesel = 164.9
+                if '2017-05-25T10:00' < timestamp_text:
+                    lowest_diesel = 161.9
+            bensin_diff = round((highest_bensin - lowest_bensin), 1)
+            diesel_diff = round((highest_diesel - lowest_diesel), 1)
+            price_diff_data.append({
+                'timestamp_text': timestamp_text,
+                'lowest_bensin': lowest_bensin,
+                'highest_bensin': highest_bensin,
+                'bensin_diff': bensin_diff,
+                'lowest_diesel': lowest_diesel,
+                'highest_diesel': highest_diesel,
+                'diesel_diff': diesel_diff,
+            })
+    filename = 'data/fuel_price_iceland_min_max_diff.csv.txt'
+    with open(filename, mode='w', encoding='utf-8') as crude_ratio_file:
+        if logger is not None:
+            logger.info('Writing to file "%s" ..' % (filename, ))
+        crude_ratio_file.write((
+            'timestamp,lowest_bensin,highest_bensin,bensin_diff,lowest_diesel,highest_diesel,'
+            'diesel_diff\n'
+        ))
+        for price_diff_datapoint in price_diff_data:
+            crude_ratio_file.write((
+                '{timestamp_text},{lowest_bensin},{highest_bensin},{bensin_diff},{lowest_diesel},'
+                '{highest_diesel},{diesel_diff}\n'
+            ).format_map(price_diff_datapoint))
+
+
 def commit_changes_to_git(db, config, logger=None):
     if logger is None:
         logger = Logger
@@ -511,6 +619,7 @@ def commit_changes_to_git(db, config, logger=None):
         'data/currency_rate_isk_zar.csv.txt',
         'data/fuel_diesel_iceland_liter_isk.csv.txt',
         'data/fuel_petrol_iceland_liter_isk.csv.txt',
+        'data/fuel_price_iceland_min_max_diff.csv.txt',
         'data/crude_ratio.csv.txt',
     ]
     git_ssh_identity_file = os.path.expanduser(config.get('Comparison', 'ssh_id_file'))
@@ -604,6 +713,7 @@ def main(init_logger=True):
         write_isk_rate_history_to_files(database.db)
         write_icelandic_fuel_price_history_to_files(database.db)
         write_crude_ratio()
+        read_and_write_price_diff_data(config, Logger)
     if pargs.auto_commit:
         if Logger is not None:
             Logger.info('Running --auto-commit ..')

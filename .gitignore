@@ -66,3 +66,6 @@ target/
 
 # database file
 database/database.sqlite
+
+# local test config
+config-local.cfg
