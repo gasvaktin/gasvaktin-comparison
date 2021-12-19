@@ -523,7 +523,7 @@ def read_and_write_price_diff_data(config, logger=None, fromdate=None, todate=No
             if todate is not None and todate < timestamp:
                 # ignore price changes after to-date if provided
                 continue
-            stations = json.loads(filecontents)
+            stations = json.loads(filecontents.decode('utf-8'))
             commits_list.append((timestamp_text, stations))
         commits_list_reversed = reversed(commits_list)
         for timestamp_text, stations in commits_list_reversed:
@@ -552,7 +552,7 @@ def read_and_write_price_diff_data(config, logger=None, fromdate=None, todate=No
                     lowest_diesel = 161.9
             bensin_diff = round((highest_bensin - lowest_bensin), 1)
             diesel_diff = round((highest_diesel - lowest_diesel), 1)
-            price_diff_data.append({
+            price_diff_dp = {
                 'timestamp_text': timestamp_text,
                 'lowest_bensin': lowest_bensin,
                 'highest_bensin': highest_bensin,
@@ -560,7 +560,18 @@ def read_and_write_price_diff_data(config, logger=None, fromdate=None, todate=No
                 'lowest_diesel': lowest_diesel,
                 'highest_diesel': highest_diesel,
                 'diesel_diff': diesel_diff,
-            })
+            }
+            if (  # skip datapoints which are identical to previous datapoint
+                len(price_diff_data) == 0 or not (
+                    price_diff_data[-1]['lowest_bensin'] == price_diff_dp['lowest_bensin'] and
+                    price_diff_data[-1]['highest_bensin'] == price_diff_dp['highest_bensin'] and
+                    price_diff_data[-1]['bensin_diff'] == price_diff_dp['bensin_diff'] and
+                    price_diff_data[-1]['lowest_diesel'] == price_diff_dp['lowest_diesel'] and
+                    price_diff_data[-1]['highest_diesel'] == price_diff_dp['highest_diesel'] and
+                    price_diff_data[-1]['diesel_diff'] == price_diff_dp['diesel_diff']
+                )
+            ):
+                price_diff_data.append(price_diff_dp)
     filename = 'data/fuel_price_iceland_min_max_diff.csv.txt'
     with open(filename, mode='w', encoding='utf-8') as crude_ratio_file:
         if logger is not None:
