@@ -146,6 +146,19 @@ def fetch_isk_rate_history(db, logger=None):
         logger.info('Finished fetching ISK rate history.')
 
 
+def fetch_isk_inflation_index_history_and_write_to_file(logger=None):
+    if logger is None:
+        logger = Logger
+    isk_inflation_index_data = endpoints.get_isk_inflation_index_history(logger=logger)
+    filename = 'data/currency_isk_inflation_index.csv.txt'
+    with open(filename, mode='w', encoding='utf-8') as outfile:
+        outfile.write('date,value\n')
+        for month in isk_inflation_index_data['list']:
+            outfile.write('%s,%s\n' % (month['date'], month['value']))
+    if logger is not None:
+        logger.info('Finished writing isk inflation index history data to files.')
+
+
 def fetch_icelandic_fuel_price_history(db, logger=None):
     if logger is None:
         logger = Logger
@@ -632,6 +645,7 @@ def commit_changes_to_git(db, config, logger=None):
         'data/fuel_petrol_iceland_liter_isk.csv.txt',
         'data/fuel_price_iceland_min_max_diff.csv.txt',
         'data/crude_ratio.csv.txt',
+        'data/currency_isk_inflation_index.csv.txt',
     ]
     git_ssh_identity_file = os.path.expanduser(config.get('Comparison', 'ssh_id_file'))
     assert(os.path.exists(git_ssh_identity_file) and os.path.isfile(git_ssh_identity_file))
@@ -717,6 +731,7 @@ def main(init_logger=True):
         fetch_crude_oil_rate_history(database.db)
         fetch_isk_rate_history(database.db)
         fetch_icelandic_fuel_price_history(database.db)
+        fetch_isk_inflation_index_history_and_write_to_file()
     if pargs.write_data:
         if Logger is not None:
             Logger.info('Running --write-data ..')

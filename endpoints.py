@@ -383,6 +383,83 @@ def get_icelandic_fuel_price_history(req_date=None, logger=None):
     return data
 
 
+def get_isk_inflation_index_history(logger=None):
+    '''
+    Extracts ISK inflation index data from Hagstofa Íslands.
+
+    Hagstofa Íslands maintains and exposes monthly ISK inflation index data dating back to 1939-01
+    where the index is set to 100. In the year 1981 there was a currency change in Iceland, from
+    old ISK to new ISK, where two zeros were cut off the ISK so to speak. This fact is not
+    reflected in the inflation index so if you want to calculate to/from old ISK amounts for one or
+    another reason then you would want to simply multiply/divide the amount by 100.
+
+    Usage:  res_data = get_isk_inflation_index_history()
+    Before: Nothing
+    After:  @res_data is a dict containing monthly isk inflation index historical data from 1939-01
+            up to last month.
+
+    Note: [From website, in icelandic, regarding index definition, which has changed over time]
+          "Til grundvallar útreikningnum eru notuð birt gildi vísitölu framfærslukostnaðar og
+          vísitölu neysluverðs. Á árunum 1968 – 1983 var vísitala framfærslukostnaðar reiknuð
+          fjórum sinnum á ári. Athugið að verðtrygging hefur ekki alltaf miðast við vísitölu
+          framfærslukostnaðar eða vísitölu neysluverðs eingöngu."
+    '''
+    today = datetime.datetime.strftime(datetime.datetime.utcnow(), '%Y-%m-%d')
+    session = requests.Session()
+    session.get('https://hagstofa.is/verdlagsreiknivel', headers={'User-Agent': USER_AGENT})
+    time.sleep(0.1)
+    url = 'https://px.hagstofa.is/pxis/api/v1/is/Efnahagur/visitolur/1_vnv/1_vnv/VIS01002.px'
+    headers = {
+        'Accept': '*/*',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Connection': 'keep-alive',
+        'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+        'Host': 'px.hagstofa.is',
+        'Origin': 'https://hagstofa.is',
+        'Referer': 'https://hagstofa.is/',
+        'Sec-Fetch-Dest': 'empty',
+        'Sec-Fetch-Mode': 'cors',
+        'Sec-Fetch-Site': 'same-site',
+        'User-Agent': USER_AGENT
+    }
+    form_data_for_post = (
+        '{"query":[{"code":"Vísitala","selection":{"filter":"item","values":["CPI"]}},{"code":'
+        '"Grunnur","selection":{"filter":"item","values":["B1939"]}}],"response":{"format":"csv"}}'
+    ).encode('utf-8')
+    res = session.post(url, headers=headers, data=form_data_for_post)
+    res.raise_for_status()
+    content = res.content.decode('cp1252')  # charset=Windows-1252
+    first_line = True
+    line_regex = r'(?:\")([0123456789]*)(?:M)([0123456789]*)(?:\",)([.]|[0123456789]*)'
+    content_lines = content.split('\r\n')
+    datalist = []
+    last_value = None
+    last_date_str = None
+    for count, line in enumerate(content_lines):
+        if first_line:
+            assert(line == '"Mánuður","Vísitala neysluverðs Grunnur 1939"')
+            first_line = False
+            continue
+        match = re.match(line_regex, line)
+        if match is None:
+            assert(count == (len(content_lines) - 1))
+            continue
+        year, month, value = match.groups()
+        if value == '.':
+            value = last_value
+        date_str = '%s-%s-1' % (year, month)
+        assert('1939-01-1' <= date_str)
+        if last_date_str is not None:
+            assert(last_date_str < date_str)
+        assert(date_str < today)
+        datalist.append({'date': date_str, 'value': value})
+        if value != '.':
+            last_value = value
+        last_date_str = date_str
+    return {'list': datalist}
+
+
 if __name__ == '__main__':
     import pprint
     print('running get_crude_oil_rate_history_fallback ..')
