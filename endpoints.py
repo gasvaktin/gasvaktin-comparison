@@ -448,8 +448,8 @@ def get_isk_inflation_index_history(logger=None):
         year, month, value = match.groups()
         if value == '.':
             value = last_value
-        date_str = '%s-%s-1' % (year, month)
-        assert('1939-01-1' <= date_str)
+        date_str = '%s-%s-01' % (year, month)
+        assert('1939-01-01' <= date_str)
         if last_date_str is not None:
             assert(last_date_str < date_str)
         assert(date_str < today)
