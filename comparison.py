@@ -6,6 +6,7 @@ import csv
 import datetime
 import json
 import logging
+import operator
 import os
 
 import git
@@ -429,58 +430,6 @@ def write_crude_ratio(logger=None):
         logger.info('Finished Writing crude petrol price isk ratio data to files.')
 
 
-def calculate_comparison_data(mydate=None, logger=None):
-    if logger is None:
-        logger = Logger
-    # WIP ..
-    if mydate is None:
-        mydate = datetime.datetime.now()
-    # read crude oil price (isk/liter) for @mydate
-    # find out when price was the same as on @mydate more than 3 months before @mydate
-    # read crude oil price (usd/bbl) for those two time periods
-    # read isk-usd rate for those two time periods
-    # read icelandic petrol price for those two time periods
-    # read icelandic diesel price for those two time periods
-    # gather data together and return it
-    comparison_data = {
-        'c_date': mydate.strfdate('%Y-%m-%d'),
-        'before_date': None,
-        'crude_oil_isk_liter': {
-            'c_date': None,
-            'before_date_1': None,
-            'before_date_2': None
-        },
-        'crude_oil_bbl_barrel': {
-            'c_date': None,
-            'before_date_1': None,
-            'before_date_2': None
-        },
-        'rate_isk_usd': {
-            'c_date': None,
-            'before_date_1': None,
-            'before_date_2': None
-        },
-        'price_petrol_iceland': {
-            'c_date': None,
-            'before_date_1': None,
-            'before_date_2': None
-        },
-        'price_diesel_iceland': {
-            'c_date': None,
-            'before_date_1': None,
-            'before_date_2': None
-        },
-        'prediction': {
-            'petrol': 0.0,
-            'diesel': 0.0
-        }
-    }
-    # later use this to construct csv table with maybe over 20 columns
-    #
-    # comparison_prediction_filename = 'data/comparison_prediction.csv.txt'
-    return comparison_data
-
-
 def read_and_write_price_diff_data(config, logger=None, fromdate=None, todate=None):
     if logger is None:
         logger = Logger
@@ -497,14 +446,44 @@ def read_and_write_price_diff_data(config, logger=None, fromdate=None, todate=No
         '96a558c64333ad970cd0c05c5fa79cafdaee7c13',
         'd430fa2a0b7a34df4843f21a717e6d4a971aa7e6',
         '71a03f6fdc48fda2213ed2e37ff6ee66016bb853',
+        '473da685077c2ffdec58028737b44d560d1215d5',
+        'f77bc20e481067d15b6e4431ed0c8d8f7ffad470',
     ]
     gasvaktin_repo_path = os.path.expanduser(config.get('Comparison', 'gasvaktin_git_directory'))
     git_ssh_identity_file = os.path.expanduser(config.get('Comparison', 'ssh_id_file'))
     assert(os.path.exists(git_ssh_identity_file) and os.path.isfile(git_ssh_identity_file))
     git_ssh_cmd = 'ssh -i %s' % (git_ssh_identity_file, )
     price_diff_data = []
+    c_data = {  # companies price data
+        'ao': [], 'co': [], 'dn': [], 'n1': [], 'ob': [], 'ol': [], 'or': [], 'ox': [], 'sk': []
+    }
+    c_data['co'].append({
+        'timestamp_text': '2017-05-19T08:00',
+        'stations_count': 1,
+        'lowest_bensin': 169.9,
+        'highest_bensin': 169.9,
+        'average_bensin': 169.9,
+        'common_bensin': 169.9,
+        'lowest_diesel': 164.9,
+        'highest_diesel': 164.9,
+        'average_diesel': 164.9,
+        'common_diesel': 164.9
+    })
+    c_data['co'].append({
+        'timestamp_text': '2017-05-25T10:00',
+        'stations_count': 1,
+        'lowest_bensin': 169.9,
+        'highest_bensin': 169.9,
+        'average_bensin': 169.9,
+        'common_bensin': 169.9,
+        'lowest_diesel': 161.9,
+        'highest_diesel': 161.9,
+        'average_diesel': 161.9,
+        'common_diesel': 161.9
+    })
     if logger is not None:
         logger.info('Reading price diff data from gasvaktin git ..')
+        logger.info('Reading price data for individual companies from gasvaktin git ..')
     with git.Git().custom_environment(GIT_SSH_COMMAND=git_ssh_cmd):
         repo = git.Repo(gasvaktin_repo_path)
         assert(repo.active_branch.name == 'master')
@@ -540,6 +519,7 @@ def read_and_write_price_diff_data(config, logger=None, fromdate=None, todate=No
             commits_list.append((timestamp_text, stations))
         commits_list_reversed = reversed(commits_list)
         for timestamp_text, stations in commits_list_reversed:
+            # fuel_price_iceland_min_max_diff
             lowest_bensin = None
             highest_bensin = None
             bensin_diff = None
@@ -585,6 +565,120 @@ def read_and_write_price_diff_data(config, logger=None, fromdate=None, todate=No
                 )
             ):
                 price_diff_data.append(price_diff_dp)
+            # pull together price data for individual oil companies
+            for cid in c_data.keys():
+                data_bensin_sum = 0
+                data_bensin_prices = {}
+                data_diesel_sum = 0
+                data_diesel_prices = {}
+                data = {
+                    'timestamp_text': timestamp_text,
+                    'stations_count': 0,
+                    'lowest_bensin': None,
+                    'highest_bensin': None,
+                    'average_bensin': None,
+                    'common_bensin': None,
+                    'lowest_diesel': None,
+                    'highest_diesel': None,
+                    'average_diesel': None,
+                    'common_diesel': None
+                }
+                for station in stations['stations']:
+                    if station['key'].startswith('%s_' % (cid, )):
+                        data['stations_count'] += 1
+                        data_bensin_sum += station['bensin95']
+                        if station['bensin95'] not in data_bensin_prices:
+                            data_bensin_prices[station['bensin95']] = 1
+                        else:
+                            data_bensin_prices[station['bensin95']] += 1
+                        if (
+                            data['lowest_bensin'] is None or
+                            data['lowest_bensin'] > station['bensin95']
+                        ):
+                            data['lowest_bensin'] = station['bensin95']
+                        if (
+                            data['highest_bensin'] is None or
+                            data['highest_bensin'] < station['bensin95']
+                        ):
+                            data['highest_bensin'] = station['bensin95']
+                        data_diesel_sum += station['diesel']
+                        if station['diesel'] not in data_diesel_prices:
+                            data_diesel_prices[station['diesel']] = 1
+                        else:
+                            data_diesel_prices[station['diesel']] += 1
+                        if (
+                            data['lowest_diesel'] is None or
+                            data['lowest_diesel'] > station['diesel']
+                        ):
+                            data['lowest_diesel'] = station['diesel']
+                        if (
+                            data['highest_diesel'] is None or
+                            data['highest_diesel'] < station['diesel']
+                        ):
+                            data['highest_diesel'] = station['diesel']
+                if data['stations_count'] > 0:
+                    data['average_bensin'] = round(
+                        data_bensin_sum / data['stations_count'], 1
+                    )
+                    data['common_bensin'] = max(
+                        data_bensin_prices.items(), key=operator.itemgetter(1)
+                    )[0]
+                    data['average_diesel'] = round(
+                        data_diesel_sum / data['stations_count'], 1
+                    )
+                    data['common_diesel'] = max(
+                        data_diesel_prices.items(), key=operator.itemgetter(1)
+                    )[0]
+                    if (
+                        len(c_data[cid]) == 0 or not (
+                            c_data[cid][-1]['stations_count'] == data['stations_count'] and
+                            c_data[cid][-1]['lowest_bensin'] == data['lowest_bensin'] and
+                            c_data[cid][-1]['highest_bensin'] == data['highest_bensin'] and
+                            c_data[cid][-1]['average_bensin'] == data['average_bensin'] and
+                            c_data[cid][-1]['common_bensin'] == data['common_bensin'] and
+                            c_data[cid][-1]['lowest_diesel'] == data['lowest_diesel'] and
+                            c_data[cid][-1]['highest_diesel'] == data['highest_diesel'] and
+                            c_data[cid][-1]['average_diesel'] == data['average_diesel'] and
+                            c_data[cid][-1]['common_diesel'] == data['common_diesel']
+                        )
+                    ):
+                        c_data[cid].append(data)
+    c_data['dn'].append({
+        'timestamp_text': '2021-11-13T23:15',
+        'stations_count': 0,
+        'lowest_bensin': 'null',
+        'highest_bensin': 'null',
+        'average_bensin': 'null',
+        'common_bensin': 'null',
+        'lowest_diesel': 'null',
+        'highest_diesel': 'null',
+        'average_diesel': 'null',
+        'common_diesel': 'null'
+    })
+    c_data['ox'].append({
+        'timestamp_text': '2020-01-25T09:00',
+        'stations_count': 0,
+        'lowest_bensin': 'null',
+        'highest_bensin': 'null',
+        'average_bensin': 'null',
+        'common_bensin': 'null',
+        'lowest_diesel': 'null',
+        'highest_diesel': 'null',
+        'average_diesel': 'null',
+        'common_diesel': 'null'
+    })
+    c_data['sk'].append({
+        'timestamp_text': '2018-02-21T15:30',
+        'stations_count': 0,
+        'lowest_bensin': 'null',
+        'highest_bensin': 'null',
+        'average_bensin': 'null',
+        'common_bensin': 'null',
+        'lowest_diesel': 'null',
+        'highest_diesel': 'null',
+        'average_diesel': 'null',
+        'common_diesel': 'null'
+    })
     filename = 'data/fuel_price_iceland_min_max_diff.csv.txt'
     with open(filename, mode='w', encoding='utf-8') as crude_ratio_file:
         if logger is not None:
@@ -598,6 +692,32 @@ def read_and_write_price_diff_data(config, logger=None, fromdate=None, todate=No
                 '{timestamp_text},{lowest_bensin},{highest_bensin},{bensin_diff},{lowest_diesel},'
                 '{highest_diesel},{diesel_diff}\n'
             ).format_map(price_diff_datapoint))
+    cid_filename_map = {
+        'ao': 'data/fuel_price_iceland_company_atlantsolia.csv.txt',
+        'co': 'data/fuel_price_iceland_company_costco.csv.txt',
+        'dn': 'data/fuel_price_iceland_company_daelan.csv.txt',
+        'n1': 'data/fuel_price_iceland_company_n1.csv.txt',
+        'ob': 'data/fuel_price_iceland_company_ob.csv.txt',
+        'ol': 'data/fuel_price_iceland_company_olis.csv.txt',
+        'or': 'data/fuel_price_iceland_company_orkan.csv.txt',
+        'ox': 'data/fuel_price_iceland_company_orkanx.csv.txt',
+        'sk': 'data/fuel_price_iceland_company_skeljungur.csv.txt'
+    }
+    for cid in c_data.keys():
+        filename_c = cid_filename_map[cid]
+        with open(filename_c, mode='w', encoding='utf-8') as file_c:
+            if logger is not None:
+                logger.info('Writing to file "%s" ..' % (filename_c, ))
+            file_c.write((
+                'timestamp,stations_count,lowest_bensin,highest_bensin,average_bensin,'
+                'common_bensin,lowest_diesel,highest_diesel,average_diesel,common_diesel\n'
+            ))
+            for price_datapoint in c_data[cid]:
+                file_c.write((
+                    '{timestamp_text},{stations_count},{lowest_bensin},{highest_bensin},'
+                    '{average_bensin},{common_bensin},{lowest_diesel},{highest_diesel},'
+                    '{average_diesel},{common_diesel}\n'
+                ).format_map(price_datapoint))
 
 
 def commit_changes_to_git(db, config, logger=None):
@@ -646,6 +766,15 @@ def commit_changes_to_git(db, config, logger=None):
         'data/fuel_price_iceland_min_max_diff.csv.txt',
         'data/crude_ratio.csv.txt',
         'data/currency_isk_inflation_index.csv.txt',
+        'data/fuel_price_iceland_company_atlantsolia.csv.txt',
+        'data/fuel_price_iceland_company_costco.csv.txt',
+        'data/fuel_price_iceland_company_daelan.csv.txt',
+        'data/fuel_price_iceland_company_n1.csv.txt',
+        'data/fuel_price_iceland_company_ob.csv.txt',
+        'data/fuel_price_iceland_company_olis.csv.txt',
+        'data/fuel_price_iceland_company_orkan.csv.txt',
+        'data/fuel_price_iceland_company_orkanx.csv.txt',
+        'data/fuel_price_iceland_company_skeljungur.csv.txt'
     ]
     git_ssh_identity_file = os.path.expanduser(config.get('Comparison', 'ssh_id_file'))
     assert(os.path.exists(git_ssh_identity_file) and os.path.isfile(git_ssh_identity_file))
@@ -676,7 +805,8 @@ def commit_changes_to_git(db, config, logger=None):
                 if logger is not None:
                     logger.warning('Repository is dirty but no changes to files in watchlist.')
         else:
-            logger.info('Repository is clean.')
+            if logger is not None:
+                logger.info('Repository is clean.')
 
 
 def main(init_logger=True):
