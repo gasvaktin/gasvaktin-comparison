@@ -5,6 +5,7 @@ import calendar
 import csv
 import datetime
 import io
+import json
 import re
 import time
 
@@ -119,14 +120,17 @@ def get_isk_exchange_rate(req_date, logger=None):
 
 def get_crude_oil_rate_history(date_a=None, date_b=None, logger=None):
     '''
-    Extracts historical crude oil prices in USD/bbl from U.S. Energy Information Administration.
+    Extracts historical crude oil prices in USD/bbl from mbl.is (data originates from eia.gov,
+    U.S. Energy Information Administration).
 
     The U.S. Energy Information Administration has data from 1987-05-20 to current date, they do
-    offer CSV download and also an API, however to use the API we need to register for an access
-    key which is unnecessary hassle for a random person who would perhaps like to run this on its
-    own but hasn't registered for an API key. The CSV download way is actually done with a funny
-    POST call to a php script with the whole data as a form data payload which the php script uses
-    to build a CSV file, so we just parse the data from the website HTML.
+    offer bulk download and also an API, but to use the API we need to register for an access key.
+    The bulk download way is .. bulky. There are at this time of writing 13 separate bulk files
+    available, the PET.zip file containing EU brent crude oil price is around 50 MB in size.
+    See: https://www.eia.gov/opendata/bulkfiles.pyp
+
+    Fortunately, mbl.is seems to have started fetching this data from eia.gov and makes it easily
+    available on its site, so we just fetch it from them instead of signing up for an access key.
 
     Usage:  res_data = get_crude_oil_rate_history(date_a, date_b)
     Before: @date_a and @date_b are both optional parameters, both should be datetime.datetime
@@ -148,31 +152,56 @@ def get_crude_oil_rate_history(date_a=None, date_b=None, logger=None):
         end_date = date_b
     assert(start_date <= end_date)
     today = datetime.datetime.now()
-    url = 'https://www.eia.gov/opendata/qb.php?sdid=PET.RBRTE.D'
+    # url = (
+    #     'https://api.eia.gov/v2/petroleum/pri/spt/data/?api_key={access_key}'
+    #     '&frequency=daily'
+    #     '&data[0]=value'
+    #     '&start={start_date}'
+    #     '&end={end_date}'
+    #     '&sort[0][column]=period'
+    #     '&sort[direction]=desc'
+    #     '&offset=0'
+    #     '&length=5000'
+    # ).format(access_key='DUMMY_KEY', start_date='2023-01-01', end_date='2023-02-01')
+    url = 'https://www.mbl.is/vidskipti/oliuverd/'
     res = requests.get(url, headers={'User-Agent': USER_AGENT})
     res.raise_for_status()
     html = lxml.etree.fromstring(res.content, lxml.etree.HTMLParser())
-    table_body = html.find('.//table[@class="basic_table"]/tbody')
-    data = {}
-    for table_row in table_body:
-        date_txt = table_row.findall('td')[1].text
-        date_datetime = datetime.datetime.strptime(date_txt, '%Y%m%d')
+    data_str = None
+    data = None
+    parsed_data = {}
+    start_string = 'var olia_1_graf_data = '
+    end_string = ';'
+    for script_element in html.findall('.//script'):
+        if script_element.text is None:
+            continue
+        if start_string in script_element.text and end_string in script_element.text:
+            start = script_element.text.find(start_string) + len(start_string)
+            end = script_element.text.find(end_string)
+            if start >= end:
+                raise Exception('Data extraction failure.')
+            data_str = script_element.text[start:end]
+            data = json.loads(data_str)
+            break
+    if data is None:
+        raise Exception('Failed to locate data.')
+    for epoch_time, price in data:
+        date_datetime = datetime.datetime.fromtimestamp(epoch_time / 1000)
         date_isoformatted = date_datetime.strftime('%Y-%m-%d')
         if (date_isoformatted < start_date.strftime('%Y-%m-%d') or
             end_date.strftime('%Y-%m-%d') <= date_isoformatted or
                 today.strftime('%Y-%m-%d') <= date_isoformatted):
             continue  # strip away data for unwanted days
-        value_txt = table_row.findall('td')[3].text
-        value_float = float(value_txt)
-        data[date_isoformatted] = value_float
-    assert(len(data.keys()) > 0)
+        value_float = float(price)
+        parsed_data[date_isoformatted] = value_float
+    assert(len(parsed_data.keys()) > 0)
     if logger is not None:
         logger.info('Crude Oil rate for dates [%s to %s] (%s lines) extracted.' % (
             start_date.strftime('%Y-%m-%d'),
             end_date.strftime('%Y-%m-%d'),
-            len(data.keys())
+            len(parsed_data.keys())
         ))
-    return data
+    return parsed_data
 
 
 def get_crude_oil_rate_history_fallback(logger=None):
