@@ -450,6 +450,7 @@ def read_and_write_price_diff_data(config, logger=None, fromdate=None, todate=No
         'f77bc20e481067d15b6e4431ed0c8d8f7ffad470',
         'b1b0a413303de2aef7bf37b711576a116a4b45bd',
         '0bebbe40af1d3515700064b962a1e3fc218094a7',
+        'fc44024f3191112961f30c39d9783865b553b0cb',
     ]
     gasvaktin_repo_path = os.path.expanduser(config.get('Comparison', 'gasvaktin_git_directory'))
     git_ssh_identity_file = os.path.expanduser(config.get('Comparison', 'ssh_id_file'))
