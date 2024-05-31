@@ -458,7 +458,7 @@ def get_isk_inflation_index_history(logger=None):
     ).encode('utf-8')
     res = session.post(url, headers=headers, data=form_data_for_post)
     res.raise_for_status()
-    content = res.content.decode('cp1252')  # charset=Windows-1252
+    content = res.content.decode('utf-8')
     first_line = True
     line_regex = r'(?:\")([0123456789]*)(?:M)([0123456789]*)(?:\",)([.]|[0123456789]*)'
     content_lines = content.split('\r\n')
@@ -466,6 +466,7 @@ def get_isk_inflation_index_history(logger=None):
     last_value = None
     last_date_str = None
     for count, line in enumerate(content_lines):
+        line = line.replace('\ufeff', '')
         if first_line:
             assert(line == '"Mánuður","Vísitala neysluverðs Grunnur 1939"')
             first_line = False
