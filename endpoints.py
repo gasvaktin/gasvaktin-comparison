@@ -78,12 +78,12 @@ def get_isk_exchange_rate(req_date, logger=None):
         'showDescriptions=True&'
         'showShortNames=True&'
         'showDates=True&'
-        f'date={date_str}&'
+        'date={date_str}&'
         'timeseries=4064%2c4055%2c4103%2c4088%2c4061%2c4091%2c4109%2c4106%2c4085%2c4097%2c29%2c40'
         '%2c39%2c41%2c44%2c52%2c42%2c48%2c31%2c35%2c36%2c37%2c38%2c43%2c45%2c46%2c50%2c51%2c53%2c'
         '74%2c288%2c3503%2c30%2c4052%2c4058%2c4112%2c32%2c4100%2c4067%2c4070%2c4073%2c49%2c4079%2'
         'c4082%2c4076%2c4094%2c3504%2c33%2c34%2c47%2c19254'
-    )
+    ).format(date_str=date_str)
     res2 = session.get(csv_url, headers=headers_for_csv)
     res2.raise_for_status()
     csv_data_str = res2.content.decode('utf-8')
