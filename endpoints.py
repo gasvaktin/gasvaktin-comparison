@@ -12,7 +12,8 @@ import time
 import lxml.etree
 import requests
 
-USER_AGENT = 'Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:63.0) Gecko/20100101 Firefox/63.0'
+
+USER_AGENT = 'Mozilla/5.0 (X11; Linux x86_64; rv:136.0) Gecko/20100101 Firefox/136.0'
 
 
 def get_isk_exchange_rate(req_date, logger=None):
@@ -34,10 +35,13 @@ def get_isk_exchange_rate(req_date, logger=None):
           possible for obvious reasons.
     '''
     beginning = datetime.datetime(1981, 1, 1)
-    assert(beginning <= req_date)
+    if beginning > req_date:
+        raise Exception('req_date is too far back')
     today = datetime.datetime.now()
-    assert(req_date <= today)
+    if req_date > today:
+        raise Exception('req_date cannot be in the future')
     date_str = req_date.strftime('%Y-%m-%d')
+    date_str_non_iso = req_date.strftime('%d.%m.%Y')
     data = {
         'date': date_str,
         'currencies': {},
@@ -59,60 +63,58 @@ def get_isk_exchange_rate(req_date, logger=None):
     url = 'https://www.sedlabanki.is/hagtolur/opinber-gengisskraning/'
     res1 = session.get(url, headers={'User-Agent': USER_AGENT})
     res1.raise_for_status()
-    headers_for_post = {
+    # fetch data via CSV api url
+    headers_for_csv = {
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
         'Accept-Encoding': 'gzip, deflate, br',
         'Accept-Language': 'en-US,en;q=0.5',
-        'Connection': 'keep-alive',
         'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-        'Host': 'www.sedlabanki.is',
+        'Host': 'sedlabanki.is',
         'Referer': url,
         'User-Agent': USER_AGENT
     }
-    html1 = lxml.etree.fromstring(res1.content, lxml.etree.HTMLParser())
-    form_data_for_post = {
-        '__EVENTVALIDATION': html1.find('.//input[@id="__EVENTVALIDATION"]').get('value'),
-        '__VIEWSTATE': html1.find('.//input[@id="__VIEWSTATE"]').get('value'),
-        '__VIEWSTATEGENERATOR': html1.find('.//input[@id="__VIEWSTATEGENERATOR"]').get('value'),
-        'ctl00$ctl00$Content$Content$ctl04$btnGetGengi': 'Sækja',
-        'ctl00$ctl00$Content$Content$ctl04$ddlDays': str(req_date.day),
-        'ctl00$ctl00$Content$Content$ctl04$ddlMonths': str(req_date.month),
-        'ctl00$ctl00$Content$Content$ctl04$ddlYears': str(req_date.year)
-    }
-    time.sleep(0.8)  # just to look polite
-    res2 = session.post(url, headers=headers_for_post, data=form_data_for_post)
+    csv_url = (
+        'https://sedlabanki.is/api/rate/csv?'
+        'showDescriptions=True&'
+        'showShortNames=True&'
+        'showDates=True&'
+        f'date={date_str}&'
+        'timeseries=4064%2c4055%2c4103%2c4088%2c4061%2c4091%2c4109%2c4106%2c4085%2c4097%2c29%2c40'
+        '%2c39%2c41%2c44%2c52%2c42%2c48%2c31%2c35%2c36%2c37%2c38%2c43%2c45%2c46%2c50%2c51%2c53%2c'
+        '74%2c288%2c3503%2c30%2c4052%2c4058%2c4112%2c32%2c4100%2c4067%2c4070%2c4073%2c49%2c4079%2'
+        'c4082%2c4076%2c4094%2c3504%2c33%2c34%2c47%2c19254'
+    )
+    res2 = session.get(csv_url, headers=headers_for_csv)
     res2.raise_for_status()
-    staturory_holiday_msg = 'er lögbundinn frídagur, en það er ekkert gengi skráð á slíkum dögum.'
-    if bytes(staturory_holiday_msg, 'utf-8') in res2.content:
+    csv_data_str = res2.content.decode('utf-8')
+    if csv_data_str == '\ufeffNafn;Miðgengi;Dagsetning;\n':
         data['status']['success'] = False
-        data['status']['msg'] = '%s, "%s" %s.' % (
-            'No currency rates were returned because of staturory holiday',
+        data['status']['msg'] = '%s, "%s" %s' % (
+            'No currency rates were returned in CSV',
             date_str,
-            'is a staturory holiday'
+            'might be a staturory holiday?'
         )
         if logger is not None:
             logger.info(data['status']['msg'])
         return data
-    html2 = lxml.etree.fromstring(res2.content, lxml.etree.HTMLParser())
-    html2tables = html2.findall('.//table')
-    shown_date = datetime.datetime.strptime(
-        html2tables[1].find('.//tr/td/span').text,
-        'Skráning: %d.%m.%Y'
-    )
-    assert(req_date == shown_date)
-    for row in html2tables[0].findall('.//tr'):
-        if row.find('.//th') is not None:
-            continue
-        columns = row.findall('.//td')
+    # parse data from CSV
+    csv_parser = csv.DictReader(io.StringIO(csv_data_str), delimiter=';')
+    for entry in csv_parser:
         currency_data = {
-            'name': columns[0].text.strip(),
-            'code': columns[1].text,
+            'name': entry['\ufeffNafn'].split('-')[1].strip(),
+            'code': entry['\ufeffNafn'].split('-')[0].strip(),
             'buy': None,
             'sell': None,
-            'mean': float(columns[2].text.replace(',', '.')),
+            'mean': float(entry['Miðgengi'].replace(',', '.')),
         }
         data['currencies'][currency_data['code'].lower()] = currency_data
-    assert(len(data['currencies'].keys()) > 0)
+        if entry['Dagsetning'] != date_str_non_iso:
+            raise Exception('Expected date "%s", but got "%s"' % (
+                date_str_non_iso, entry['Dagsetning']
+            ))
+    time.sleep(0.9)  # just to look polite
+    if len(data['currencies'].keys()) == 0:
+        raise Exception('Received no data?')
     if logger is not None:
         logger.info('ISK exchange rate for %s extracted.' % (date_str, ))
     return data

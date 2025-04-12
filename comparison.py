@@ -749,6 +749,7 @@ def commit_changes_to_git(db, config, logger=None):
         'data/currency_rate_isk_jmd.csv.txt',
         'data/currency_rate_isk_jpy.csv.txt',
         'data/currency_rate_isk_krw.csv.txt',
+        'data/currency_rate_isk_kwd.csv.txt',
         'data/currency_rate_isk_mxn.csv.txt',
         'data/currency_rate_isk_ngn.csv.txt',
         'data/currency_rate_isk_nok.csv.txt',
