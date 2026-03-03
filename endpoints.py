@@ -13,7 +13,7 @@ import lxml.etree
 import requests
 
 
-USER_AGENT = 'Mozilla/5.0 (X11; Linux x86_64; rv:136.0) Gecko/20100101 Firefox/136.0'
+USER_AGENT = 'Mozilla/5.0 (X11; Linux x86_64; rv:144.0) Gecko/20100101 Firefox/144.0'
 
 
 def get_isk_exchange_rate(req_date, logger=None):
@@ -279,7 +279,7 @@ def get_crude_oil_rate_history_fallback(logger=None):
         assert('Close' in data_item)
         assert(type(data_item['Close']) in (float, int))
         assert(type(data_item['Date']) is str)
-        item_datetime = datetime.datetime.strptime(data_item['Date'], '%Y-%m-%d %H:%M')
+        item_datetime = datetime.datetime.strptime(data_item['Date'][:16], '%Y-%m-%d %H:%M')
         item_date_str = item_datetime.strftime('%Y-%m-%d')
         item_value = float(data_item['Close'])
         if now_str > item_date_str:
