@@ -1,4 +1,4 @@
-GitPython==3.1.44
+GitPython==3.1.47
 lxml==5.3.2
 requests==2.32.3
 SQLAlchemy==1.4.28
